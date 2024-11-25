@@ -12,7 +12,7 @@ pip install torch numpy pandas matplotlib scipy sobol-seq
 ## Usage
 ### 1. Configure Paths
 Edit the file named `init_file.ini` with paths to necessary data directories:
-```ini
+```
 [PATHS]
 lrt_path = **path to libRadtran**
 figs_path = **path to save figures**
@@ -21,7 +21,7 @@ scenarios_path = **path to scenarios directoryt**
 
 ### 2. Instantiate and Train a Model
 To start a new scenario, import and initialize the `RTPINN` class with training and model properties:
-```python
+```
 from rtpinn import RTPINN
 
 tr_pr = {
