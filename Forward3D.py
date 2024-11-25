@@ -851,7 +851,7 @@ def plot_1D(model, tau_list, mu_vec, phi, correction=0, scale=1, color=None, lab
 def plot_1D_scan(model, tau_list, mu_view, save_results=False, model_pr={}, tr_pr={}, solver_result=[], phi=0,
                  date_str="", n_modes=0):
     # os.chdir("/home/shai/Software/TAUaerosolRetrival/Figs")
-    figs_path = "/data/cloudnn/ShaiZucker/Dropbox/Quick Files/Figs"
+    figs_path = config['figs_path']
     for tau in tau_list:
         # One side
         umu_vec = np.concatenate((-np.flip(mu_view), mu_view))
