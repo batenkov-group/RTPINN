@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.9 (base)" project-jdk-type="Python SDK" />
+  <component name="Black">
+    <option name="sdkName" value="Python 3.9 (base)" />
+  </component>
+  <component name="ProjectRootManager" version="2" project-jdk-name="Remote Python 3.10.4 (sftp://szucker@appliedmath.tau.ac.il:22/data/cloudnn/anaconda3/envs/aerosolretrival/bin/python)" project-jdk-type="Python SDK" />
 </project>

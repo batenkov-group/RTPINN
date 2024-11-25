@@ -139,7 +139,7 @@ def update_lrt_scenario(alt_vec=None, update_scenario = True):
 
 # Do that name == main this
 if __name__ == "__main__":
-    # alt_vec = np.arange(0.0, 20, 0.25)
+    # alt_vec = np.arange(0.0, 20, 0.25) #altitude can be set in either km or Top/Bottom of atmosphere
     alt_vec = None
     radiance_mat, avg_radiance, mu, phi, z_tau = update_lrt_scenario(alt_vec=alt_vec)
     if alt_vec is not None:

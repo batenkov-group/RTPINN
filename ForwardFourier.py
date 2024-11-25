@@ -1,11 +1,8 @@
-## This is the Ec File to solve the forward problem according to the
-## DISORT input
+
 import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
 import torch
-from torch.func import jacrev
-# from ImportFileORG import *
 import os
 from scipy.special import lpmv
 from scipy.special import legendre
@@ -15,23 +12,12 @@ import pprint
 import torch.optim as optim
 import copy
 import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
 import scipy as sc
 import torch.nn as nn
 import sobol_seq
 import time
 import configparser
 from torch.func import jacfwd, jacrev, vmap
-
-# torch.set_default_tensor_type(torch.DoubleTensor)
-# torch.set_default_dtype(torch.float64)
-# torch.set_default_device(1)
-# # I_0 = 3.14159 #
-# # I_0 = 0.0
-#
-# print('ground condition:', ub_1)
-# print('sza', mu_0)
-##Create tensors from the atmosphere inputs
 
 pi = np.pi
 extrema_values = None
@@ -46,12 +32,24 @@ else:
 config = configparser.ConfigParser()
 config.read('init_file.ini')
 scenarios_path = config['PATHS']['scenarios_path']
+
+
 class RTPINN():
-    def __init__(self, tr_pr, model_pr, delta_m=True, print_bool=True):
+    def __init__(self, tr_pr, model_pr, print_bool=True):
         if print_bool:
             pprint.pprint(tr_pr)
+
         self.tr_pr = tr_pr
         self.input_dimensions = 1  # Spatial dimension
+        self.initialize_parameters(tr_pr, model_pr)
+        self.initialize_scenario()
+
+        # Define domain and parameter values
+        self.domain_values = torch.tensor([[0.00, 1]])
+        self.parameters_values = torch.tensor([[-1.0, 1.0]])
+
+    def initialize_parameters(self, tr_pr, model_pr):
+        # Training parameters
         self.n_coll = tr_pr['n_coll']
         self.n_b = tr_pr['n_b']
         self.I_0 = tr_pr['I_0']
@@ -59,45 +57,98 @@ class RTPINN():
         self.N_R = tr_pr['N_R']
         self.nmom = tr_pr['nmom']
         self.n_epohcs = tr_pr['epochs']
-        self.n_mode = model_pr['n_mode']
         self.sampling_method = tr_pr['sampling_method']
         self.epohcs_adam = tr_pr['epochs_adam']
         self.steps_lbfgs = tr_pr['steps_lbfgs']
-        self.output_dimension = model_pr['n_mode']
         self.scenario_name = tr_pr['scenario_name']
         self.scenario_type = tr_pr['scenario_type']
-        self.delta_m = delta_m
+
+        # Model parameters
+        self.n_mode = model_pr['n_mode']
+        self.output_dimension = model_pr['n_mode']
+
+    def initialize_scenario(self):
         if self.scenario_type == "lrt":
-            disort_struct = lrp.DisortStruct()
-            disort_struct.init_from_output(os.path.join(scenarios_path, 'lrt', self.scenario_name, "uvspec_output.out"))
-            self.lambertian = disort_struct.lambertian
+            self.handle_lrt_scenario()
+        elif self.scenario_type == "file":
+            self.handle_file_scenario()
 
-            if disort_struct.delta_M_Method and self.delta_m:
-                self.total_optical_depth = torch.tensor(disort_struct.long_table.dm_total_optical_depth).to(dev)
-                self.coef_mat_org = torch.tensor(np.stack(disort_struct.phase_table.coef)).to(dev)
-                self.coef_mat = torch.zeros_like(self.coef_mat_org)
-                self.ssa = torch.tensor(disort_struct.long_table.dm_ssa).to(dev)
-                self.dm_separated_fraction = torch.tensor(disort_struct.long_table.dm_separated_fraction).to(dev)
+    def handle_lrt_scenario(self):
+        disort_struct = lrp.DisortStruct()
+        disort_struct.init_from_output(os.path.join(scenarios_path, 'lrt', self.scenario_name, "uvspec_output.out"))
 
-                for ii in range(self.coef_mat_org.shape[0]):
-                    for jj in range(self.coef_mat_org.shape[1]):
-                        self.coef_mat[ii, jj] = (self.coef_mat_org[ii, jj] - self.dm_separated_fraction[ii]) / (
-                                    1 - self.dm_separated_fraction[ii])
-                self.nmom = self.N_S
-            else:
-                self.total_optical_depth = torch.tensor(disort_struct.long_table.total_optical_depth).to(dev)
-                self.coef_mat = torch.tensor(disort_struct.phase_table.coef).to(dev)
-                self.ssa = torch.tensor(disort_struct.long_table.ssa).to(dev)
-            self.mu_0 = disort_struct.mu_0
-            self.phi_0 = disort_struct.phi_0
-            # Generating tensor variables
-            self.tensor_mu_0 = torch.tensor(self.mu_0).to(dev)
-            if self.lambertian == True:
-                self.ground_albedo = disort_struct.bottom_albedo
-            else:
-                self.brdf_dict = copy.deepcopy(tr_pr['brdf_dict'])
-            self.domain_values = torch.tensor([[0.00, 1]])
-            self.parameters_values = torch.tensor([[-1.0, 1.0]])  # mu=cos(theta)
+        self.lambertian = disort_struct.lambertian
+        self.mu_0 = disort_struct.mu_0
+        self.phi_0 = disort_struct.phi_0
+        self.tensor_mu_0 = torch.tensor(self.mu_0).to(dev)
+
+        if disort_struct.delta_M_Method:
+            self.initialize_delta_m_method(disort_struct)
+        else:
+            self.total_optical_depth = torch.tensor(disort_struct.long_table.total_optical_depth).to(dev)
+            self.coef_mat = torch.tensor(disort_struct.phase_table.coef).to(dev)
+            self.ssa = torch.tensor(disort_struct.long_table.ssa).to(dev)
+
+        if self.lambertian:
+            self.ground_albedo = disort_struct.bottom_albedo
+        else:
+            self.brdf_dict = copy.deepcopy(self.tr_pr['brdf_dict'])
+
+    def initialize_delta_m_method(self, disort_struct):
+        self.total_optical_depth = torch.tensor(disort_struct.long_table.dm_total_optical_depth).to(dev)
+        self.coef_mat_org = torch.tensor(np.stack(disort_struct.phase_table.coef)).to(dev)
+        self.coef_mat = torch.zeros_like(self.coef_mat_org)
+        self.ssa = torch.tensor(disort_struct.long_table.dm_ssa).to(dev)
+        self.dm_separated_fraction = torch.tensor(disort_struct.long_table.dm_separated_fraction).to(dev)
+
+        for ii in range(self.coef_mat_org.shape[0]):
+            for jj in range(self.coef_mat_org.shape[1]):
+                self.coef_mat[ii, jj] = (self.coef_mat_org[ii, jj] - self.dm_separated_fraction[ii]) / (
+                            1 - self.dm_separated_fraction[ii])
+        self.nmom = self.N_S
+
+    def handle_file_scenario(self):
+        params = self.read_csv_file('params.csv')
+        self.mu_0 = params['mu_0'][0]
+        self.phi_0 = params['phi_0'][0]
+        self.delta_m = params['delta_m'][0]
+        self.tensor_mu_0 = torch.tensor(self.mu_0).to(dev)
+
+        if self.delta_m:
+            self.handle_delta_m_file_scenario()
+        else:
+            self.total_optical_depth = self.read_tensor_from_csv('total_optical_depth.csv')
+            self.coef_mat = self.read_tensor_from_csv('coef_mat.csv')
+            self.ssa = self.read_tensor_from_csv('ssa.csv')
+
+        brdf_df = self.read_csv_file('surface.csv')
+        self.brdf_dict = brdf_df.to_dict()
+        if self.brdf_dict['type'] == 'lambertian':
+            self.ground_albedo = self.brdf_dict['albedo']
+            self.lambertian = True
+        else:
+            self.lambertian = False
+
+    def handle_delta_m_file_scenario(self):
+        self.coef_mat_org = self.read_tensor_from_csv('coef_mat.csv')
+        self.coef_mat = torch.zeros_like(self.coef_mat_org)
+        self.dm_separated_fraction = self.coef_mat_org[:, self.N_S]
+        self.ssa = self.read_tensor_from_csv('ssa.csv').reshape(-1)
+        self.total_optical_depth = self.read_tensor_from_csv('total_optical_depth.csv').reshape(-1)
+        self.total_optical_depth = (1 - self.ssa * self.dm_separated_fraction) * self.total_optical_depth
+        self.ssa = ((1 - self.dm_separated_fraction) / (1 - self.ssa * self.dm_separated_fraction)) * self.ssa
+        self.nmom = self.N_S
+
+        for ii in range(self.coef_mat_org.shape[0]):
+            for jj in range(self.coef_mat_org.shape[1]):
+                self.coef_mat[ii, jj] = (self.coef_mat_org[ii, jj] - self.dm_separated_fraction[ii]) / (
+                            1 - self.dm_separated_fraction[ii])
+
+    def read_csv_file(self, filename):
+        return pd.read_csv(os.path.join(scenarios_path, 'file', self.scenario_name, filename))
+
+    def read_tensor_from_csv(self, filename):
+        return torch.tensor(self.read_csv_file(filename).values).to(dev)
 
     def phase_func(self, M, coeff_vec, mu, mu_p, phi, phi_p):
         full_sum = torch.zeros((len(mu), len(mu_p)))
@@ -117,9 +168,6 @@ class RTPINN():
         ssa_x = interp(self.total_optical_depth, self.ssa, x * self.total_optical_depth[-1])
         return ssa_x
 
-    def omega_new(self, x):
-        ssa_x = interp_new(self.total_optical_depth, self.ssa, x * self.total_optical_depth[-1])
-        return ssa_x
 
     #   This function computes the kernal for both the D function and for X_0 calculation, (with a matching flag)
     def kernel(self, mu, mu_prime, legendre_coef, kernel_option='D'):
@@ -401,7 +449,6 @@ class RTPINN():
             self.rho_m[:, :, 0] = self.ground_albedo
             self.rho_m_0[:, 0] = self.ground_albedo
         else:
-            # TODO duplicated code please fix when you have time and add the additional params to rpv
             if self.brdf_dict['type'] == 'rossli':
                 for index_p, mu_p_val in enumerate(self.mu_prime):
                     brdf = rossli_reflection(self.brdf_dict['iso'], self.brdf_dict['geo'], self.brdf_dict['vol'],
@@ -509,158 +556,177 @@ class RTPINN():
     #         if ind_mu_0.any():
     #             correction_mat[tau_i, ind_mu_0] = correction_0
 
-
-
-
     def fit(self, model, optimizer_ADAM, optimizer_LBFGS, epoch_ADAM, x_coll_train, x_b_train, u_b_train, w_coll=None,
             w_b=None):
-        # for plotting the different loss graphs
-        train_loss_total = []
-        epochs_vec = []
-        # train_loss_vars = []
-        # train_loss_res = []
-        # frequency of updating epoch
+        """
+        Fit the model using ADAM and LBFGS optimizers.
+        """
+        # Prepare training data
         x_coll_train = x_coll_train.float().to(dev)
-        freq = 5
-        freq_update = 1000
-        lambda_vec = torch.tensor([1, 1]).to(dev)
-        alpha = 1
         if w_b is not None:
-            w_b = w_b.to(dev)
-            w_coll = w_coll.to(dev)
+            w_b, w_coll = w_b.to(dev), w_coll.to(dev)
 
         model.train()
         omega_x_f_train = self.omega(x_coll_train[:, 0].to(dev))
+        legendre_coef = self.compute_legendre_coef(x_coll_train)
+        mu_prime, w_tensor = self.double_gauss_legendre_quadrature()
+        kern_coll = self.kernel(x_coll_train[:, 1], mu_prime, legendre_coef)
+        kern_x_0 = self.kernel(x_coll_train[:, 1], self.tensor_mu_0.reshape(1, -1), legendre_coef, 'X_0')
+        self.boundary_settings(x_b_train, u_b_train)
+        self.inputs = self.prepare_inputs(x_coll_train, mu_prime)
+        x_coll_train.requires_grad = True
+
+        # Loss function
+        loss_obj = PinnsLoss(self.apply_BC_N, self.compute_R_int, self.x_boundary_inf.float())
+
+        # Training loop
+        train_loss_total, epochs_vec = [], []
+        optimizer = optimizer_ADAM
+
+        for epoch in range(self.n_epohcs):
+            optimizer = optimizer_ADAM if epoch < epoch_ADAM else optimizer_LBFGS
+            closure = self.create_closure(optimizer, model, x_coll_train, omega_x_f_train, kern_coll, kern_x_0,
+                                          w_tensor, mu_prime, loss_obj, train_loss_total, save=(epoch % 50 == 0))
+            optimizer.step(closure)
+
+            if epoch % 50 == 0:
+                epochs_vec.append(epoch)
+                print(f'Epoch: {epoch}, Log Loss: {train_loss_total[-1]}')
+                if epoch > 50 * 5 and abs(train_loss_total[-1] - train_loss_total[-5]) < 1e-7:
+                    break
+
+        return train_loss_total[-1]
+
+    def create_closure(self, optimizer, model, x_coll_train, omega_x_f_train, kern_coll, kern_x_0, w_tensor, mu_prime,
+                       loss_obj, train_loss_total, save=False):
+        def closure():
+            optimizer.zero_grad()
+            loss_f = loss_obj(model, x_coll_train, omega_x_f_train, kern_coll, kern_x_0, w_tensor, mu_prime,
+                              torch.tensor([1, 1]).to(dev))
+            loss_f.backward()
+            if save:
+                train_loss_total.append(loss_f.item())
+            return loss_f
+
+        return closure
+
+    def compute_legendre_coef(self, x_coll_train):
         legendre_coef = []
         for ii in range(self.nmom):
             legendre_coef.append(interp(self.total_optical_depth.to(dev), self.coef_mat[:, ii].to(dev),
                                         (self.total_optical_depth[-1].to(dev) * x_coll_train[:, 0].to(dev))).float())
-        
-        # Double gauss legandre quadrature
+        return legendre_coef
+
+    def double_gauss_legendre_quadrature(self):
         mu_prime, w = np.polynomial.legendre.leggauss(int(self.N_S / 2))
         mu_prime = np.concatenate([-0.5 + 0.5 * mu_prime, 0.5 + 0.5 * mu_prime])
         w = np.concatenate([w / 2, w / 2])
         w_tensor = torch.from_numpy(w).float().to(dev)
         mu_prime = torch.from_numpy(mu_prime).float().to(dev)
-        kern_coll = self.kernel(x_coll_train[:, 1], mu_prime, legendre_coef)
-        kern_x_0 = self.kernel(x_coll_train[:, 1], self.tensor_mu_0.reshape(1, -1), legendre_coef, 'X_0')
-        self.boundary_settings(x_b_train, u_b_train)
-        self.inputs = torch.cat((x_coll_train[:, 0].repeat_interleave(len(mu_prime)).unsqueeze(1), mu_prime.repeat(len(x_coll_train[:, 0])).unsqueeze(1)), dim=1)
-        x_coll_train.requires_grad = True
-        loss_obj = CustomLoss(self.apply_BC_N, self.compute_R_int, self.x_boundary_inf.float())
+        return mu_prime, w_tensor
 
-        def closure_no_save():
-            optimizer.zero_grad()
-            loss_f = loss_obj(model, x_coll_train, omega_x_f_train, kern_coll, kern_x_0, w_tensor,
-                              mu_prime,lambda_vec)
-            loss_f.backward()
-            return loss_f
-        def closure():
-            optimizer.zero_grad()
-            loss_f = loss_obj(model, x_coll_train, omega_x_f_train, kern_coll, kern_x_0, w_tensor,
-                              mu_prime, lambda_vec)
-            loss_f.backward()
-            train_loss_total.append(loss_f.item())
-            return loss_f
-
-
-        for epoch in range(self.n_epohcs):
-            optimizer = optimizer_ADAM if epoch < epoch_ADAM else optimizer_LBFGS
-            # TODO make 50 not magic
-            if epoch % 50 == 0:
-                optimizer.step(closure=closure)
-                epochs_vec.append(epoch)
-                print(f'Epoch: {epoch}, Loss: {train_loss_total[-1]}')
-                if epoch > 50 * freq:
-                    if np.abs(train_loss_total[-1] - train_loss_total[-freq]) < 1e-7:
-                        break
-            else:
-                optimizer.step(closure=closure_no_save)
-
-        return train_loss_total[-1]
+    def prepare_inputs(self, x_coll_train, mu_prime):
+        return torch.cat((x_coll_train[:, 0].repeat_interleave(len(mu_prime)).unsqueeze(1),
+                          mu_prime.repeat(len(x_coll_train[:, 0])).unsqueeze(1)), dim=1)
 
     def solve_rte(self, model_pr, print_bool=True):
+        """
+        Solve the Radiative Transfer Equation (RTE) by training or loading a model.
+        """
+        model = self.load_or_initialize_model(model_pr, print_bool)
+
         if model_pr['load_model'] == "no model" or model_pr['retrain']:
-            extrema = None
-            parameters_values = self.parameters_values
-            input_dimensions = len(parameters_values) + space_dimensions
+            # Prepare training data
+            x_b_train, u_b_train, x_coll_train, w_b, w_coll = self.prepare_training_data()
+
+            # Train model
+            start = time.time()
+            print("Fitting Model")
+            final_error_train = self.train_model(model, model_pr, x_coll_train, x_b_train, u_b_train, w_coll, w_b)
+            self.display_training_time(start)
+            model = model.eval()
+            final_error_train = float(((10 ** final_error_train) ** 0.5))
+
+        if model_pr['save_model']:
+            self.save_model(model, model_pr)
+
+        return model
+
+    def load_or_initialize_model(self, model_pr, print_bool):
+        if model_pr['load_model'] == "no model" or model_pr['retrain']:
+            input_dimensions = len(self.parameters_values) + space_dimensions
             output_dimension = self.output_dimension
 
             print('************model properties************')
             if print_bool:
                 pprint.pprint(model_pr)
-            if self.sampling_method in ["quadrature", "stream_quadrature"]:
-                x_b_train, u_b_train, w_b = self.add_boundary(2 * self.n_b)
-                x_coll_train, y_coll, w_coll = self.add_collocations(self.n_coll)
-            else:
-                x_b_train, u_b_train = self.add_boundary(2 * self.n_b)
-                x_coll_train, y_coll = self.add_collocations(self.n_coll)
-                _, indices = x_coll_train[:, 0].sort()
-                x_coll_train = x_coll_train[indices]
 
             if model_pr['retrain']:
-                if torch.cuda.is_available():
-                    model = torch.load(f"./Model/{model_pr['load_model']}.pt", map_location = dev)
-                else:
-                    model = torch.load(f"./Model/{model_pr['load_model']}.pt", map_location=torch.device('cpu'))
-                for param in model.parameters():
-                    param.requires_grad = True
+                model = self.load_model(model_pr)
                 model.train()
                 model.lambda_residual = 1
                 model.num_epochs = self.n_epohcs
             else:
                 model = Pinns(input_dimension=input_dimensions, output_dimension=output_dimension,
                               network_properties=model_pr)
-                # model.double()
                 torch.manual_seed(32)
                 init_xavier(model)
+
             if torch.cuda.is_available():
                 print("Loading model on GPU")
                 model.cuda(device=dev)
-
-            start = time.time()
-            print("Fitting Model")
-            model.train()
-
-            optimizer_LBFGS = torch.optim.LBFGS(model.parameters(),
-                                                max_iter=self.steps_lbfgs,
-                                                max_eval=None,
-                                                tolerance_grad=1e-6,
-                                                tolerance_change=1e-6,
-                                                history_size=100,
-                                                line_search_fn='strong_wolfe')
-            optimizer_ADAM = optim.Adam(model.parameters(), lr=0.001)
-            if self.sampling_method in ["quadrature", "stream_quadrature"]:
-                final_error_train = self.fit(model, optimizer_ADAM, optimizer_LBFGS, self.epohcs_adam, x_coll_train,
-                                             x_b_train,
-                                             u_b_train, w_coll, w_b)
-            else:
-                final_error_train = self.fit(model, optimizer_ADAM, optimizer_LBFGS, self.epohcs_adam, x_coll_train,
-                                             x_b_train,
-                                             u_b_train)
-
-            # Plot the loss values through the training process
-            print('*' * 10)
-            print('Training Time:')
-            duration = time.time() - start
-            print("hours:", np.floor(duration / 3600))
-            print("minutes:", np.floor((duration % 3600) / 60))
-            print("seconds:", np.floor((duration % 3600) % 60))
-            print('*' * 10)
-            model = model.eval()
-            final_error_train = float(((10 ** final_error_train) ** 0.5))
         else:
-            if torch.cuda.is_available():
-                model = torch.load(f"./Model/{model_pr['load_model']}.pt"
-                                   , map_location=dev)
-            else:
-                model = torch.load(f"./Model/{model_pr['load_model']}.pt", map_location=torch.device('cpu'))
-        if model_pr['save_model']:
-            torch.save(model, f"./Model/{model_pr['model_name']}.pt")
-            pd.DataFrame(model_pr, index=[0]).to_csv(f"./Model/{model_pr['model_name']}_model_pr.csv")
-            pd.DataFrame(self.tr_pr, index=[0]).to_csv(f"./Model/{model_pr['model_name']}_tr_pr.csv")
+            model = self.load_model(model_pr)
 
         return model
+
+    def load_model(self, model_pr):
+        if torch.cuda.is_available():
+            return torch.load(f"./Model/{model_pr['load_model']}.pt", map_location=dev)
+        else:
+            return torch.load(f"./Model/{model_pr['load_model']}.pt", map_location=torch.device('cpu'))
+
+    def prepare_training_data(self):
+        if self.sampling_method in ["quadrature", "stream_quadrature"]:
+            x_b_train, u_b_train, w_b = self.add_boundary(2 * self.n_b)
+            x_coll_train, y_coll, w_coll = self.add_collocations(self.n_coll)
+        else:
+            x_b_train, u_b_train = self.add_boundary(2 * self.n_b)
+            x_coll_train, y_coll = self.add_collocations(self.n_coll)
+            _, indices = x_coll_train[:, 0].sort()
+            x_coll_train = x_coll_train[indices]
+            w_b, w_coll = None, None
+
+        return x_b_train, u_b_train, x_coll_train, w_b, w_coll
+
+    def train_model(self, model, model_pr, x_coll_train, x_b_train, u_b_train, w_coll=None, w_b=None):
+        optimizer_LBFGS = torch.optim.LBFGS(model.parameters(),
+                                            max_iter=self.steps_lbfgs,
+                                            max_eval=None,
+                                            history_size=100,
+                                            line_search_fn='strong_wolfe')
+        optimizer_ADAM = torch.optim.Adam(model.parameters(), lr=0.001)
+
+        if self.sampling_method in ["quadrature", "stream_quadrature"]:
+            return self.fit(model, optimizer_ADAM, optimizer_LBFGS, self.epohcs_adam, x_coll_train,
+                            x_b_train, u_b_train, w_coll, w_b)
+        else:
+            return self.fit(model, optimizer_ADAM, optimizer_LBFGS, self.epohcs_adam, x_coll_train,
+                            x_b_train, u_b_train)
+
+    def display_training_time(self, start):
+        duration = time.time() - start
+        print('*' * 10)
+        print('Training Time:')
+        print("hours:", np.floor(duration / 3600))
+        print("minutes:", np.floor((duration % 3600) / 60))
+        print("seconds:", np.floor((duration % 3600) % 60))
+        print('*' * 10)
+
+    def save_model(self, model, model_pr):
+        torch.save(model, f"./Model/{model_pr['model_name']}.pt")
+        pd.DataFrame(model_pr, index=[0]).to_csv(f"./Model/{model_pr['model_name']}_model_pr.csv")
+        pd.DataFrame(self.tr_pr, index=[0]).to_csv(f"./Model/{model_pr['model_name']}_tr_pr.csv")
 
 
 def compute_flux(model, tau, n_quad, direction, mu_0=1.0):
@@ -710,19 +776,10 @@ def interp_spline(x, y, xs):
 #     nearest_index[(x[nearest_index] - xs) < 0] = nearest_index[(x[nearest_index] - xs) < 0] + 1
 #     return y[torch.minimum(nearest_index, torch.tensor(len(y) - 1))]
 def interp(x, y, xs):
-    # Ensure x is a 1D tensor and sorted
     x = x.flatten().sort()[0]
-
-    # Use searchsorted to find the indices where elements of xs should be inserted to maintain order
     indices = torch.searchsorted(x, xs, right=False)
-
-    # We need the index immediately before the insertion point to satisfy x[i] < xs
     indices = indices
-
-    # Clip indices to ensure they are within bounds (no negative indices)
     indices = torch.clamp(indices, min=0)
-
-    # Return the corresponding values from y
     return y[indices]
 
 
@@ -741,17 +798,6 @@ def interp_linear(x, y, xs):
             idxs = torch.searchsorted(x[1:], xs.to(dev))
 
     return y[idxs] + (y[idxs + 1] - y[idxs]) * (xs - x[idxs]) / (x[idxs + 1] - x[idxs])
-
-
-# Give back the ssa (single scattering albedo according to the interpolation table)
-
-
-# if dev_mode:
-#     tau_test_vec = np.linspace(0, domain_values[0, 1], num=1000)
-#     plt.plot(tau_test_vec, omega(torch.tensor(tau_test_vec).to(dev)).detach().cpu().numpy())
-#     plt.scatter(disort_struct.long_table.total_optical_depth, disort_struct.long_table.ssa)
-#     plt.show()
-
 
 def plot_1D(model, tau_list, mu_vec, phi, correction=0, scale=1, color=None, label=None, fourier=True, ax=None):
     if np.isnan(correction).any():
@@ -840,7 +886,7 @@ def plot_1D_scan(model, tau_list, mu_view, save_results=False, model_pr={}, tr_p
         return radiance_pinn_np
 
 
-def plot_skymap(model, tau_list, umu_vec, phi_vec, scale, correction, direction):
+def plot_skymap(model, tau_list, umu_vec, phi_vec, scale, correction=None, direction="up"):
     radiance_mat = np.zeros((len(tau_list), len(umu_vec), len(phi_vec)))
     for tau_i, tau in enumerate(tau_list):
         for phi_i, phi in enumerate(phi_vec):
@@ -849,14 +895,17 @@ def plot_skymap(model, tau_list, umu_vec, phi_vec, scale, correction, direction)
             input_vec[:, 2] = phi
             radiance_pinn = model.fourier_sum(torch.from_numpy(input_vec).float().to(dev))
             radiance_pinn_np = radiance_pinn.detach().cpu().numpy()
-            radiance_mat[tau_i, :, phi_i] = (radiance_pinn_np + correction[:, phi_i]) * scale
+            if correction:
+                radiance_mat[tau_i, :, phi_i] = (radiance_pinn_np + correction[:, phi_i]) * scale
+            else:
+                radiance_mat[tau_i, :, phi_i] = (radiance_pinn_np) * scale
         lrp.polar_plotter((180 / np.pi) * phi_vec, umu_vec, radiance_mat[tau_i, :, :], direction=direction,
                           title_str='')
     return radiance_mat
 
 
 # plot the heat map of the radiance function given by the mod
-def plot_heatmap(model, alt_vec, mu, tau_vec, scale,correction,tau_star):
+def plot_heatmap(model, alt_vec, mu, tau_vec, scale, correction, tau_star):
     #TODO Think of a better solution for tau_star
     """
     :param model: the trained model
@@ -952,26 +1001,28 @@ class Pinns(nn.Module):
         return fourier_sum
 
 
-class CustomLoss(torch.nn.Module):
+class PinnsLoss(torch.nn.Module):
     def __init__(self, apply_BC, compute_res, x_boundary_inf):
-        super(CustomLoss, self).__init__()
+        super(PinnsLoss, self).__init__()
         self.apply_BC = apply_BC
         self.compute_res = compute_res
         self.x_boundary_inf = x_boundary_inf
 
     def forward(self, network, x_f_train, omega_x_f_train, kern_coll, kern_x_0,
                 w_tensor, mu_prime_tensor, lambda_vec, w_coll=None, w_b=None, computing_error=False, loss_type='total'):
-        epsilon = 1e-10  # Small constant to prevent log(0)
-
+        epsilon = 1e-10
         lambda_residual = network.lambda_residual
         u_pred = network(self.x_boundary_inf)
         u_train_b = self.apply_BC(network)
-        res_b = (u_pred - u_train_b).pow_(2)  # In-place power operation
-        reg_one = torch.stack((x_f_train[:, 0], torch.ones_like(x_f_train[:, 0], device=dev)), dim=1)
-        res_one = network(reg_one)[:, 1:].pow_(2)
-        reg_m_one= torch.stack((x_f_train[:, 0], -1 * torch.ones_like(x_f_train[:, 0], device=dev)), dim=1)
-        res_m_one = network(reg_m_one)[:, 1:].pow_(2)
-        loss_reg = torch.mean(res_one + res_m_one)
+        res_b = (u_pred - u_train_b).pow_(2)
+        if network.output_dimension > 1:
+            reg_one = torch.stack((x_f_train[:, 0], torch.ones_like(x_f_train[:, 0], device=dev)), dim=1)
+            res_one = network(reg_one)[:, 1:].pow_(2)
+            reg_m_one= torch.stack((x_f_train[:, 0], - 1 * torch.ones_like(x_f_train[:, 0], device=dev)), dim=1)
+            res_m_one = network(reg_m_one)[:, 1:].pow_(2)
+            loss_reg = torch.mean(res_one + res_m_one)
+        else:
+            loss_reg = 0
         if not computing_error:
             loss_vars = torch.sum(w_b * res_b) if w_b is not None else torch.mean(res_b)
 
@@ -984,7 +1035,7 @@ class CustomLoss(torch.nn.Module):
             return torch.log10(loss_res + epsilon)
         total_loss = lambda_vec[0] * loss_vars + lambda_vec[1] * lambda_residual * loss_res + loss_reg
 
-        loss_log = torch.log10(total_loss)
+        loss_log = total_loss
 
         return loss_log
 

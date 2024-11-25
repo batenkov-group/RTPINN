@@ -121,4 +121,4 @@ def main():
 
 if __name__ == '__main__':
     # main()
-    read_Domain('i3rc_les_stcu.dom')
+    read_domain('i3rc_les_stcu.dom')
