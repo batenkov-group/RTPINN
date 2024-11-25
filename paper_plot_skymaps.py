@@ -5,7 +5,7 @@ import os
 from matplotlib import pyplot as plt
 from libradpy import disort_parser
 # from ImportFileORG import *
-import ForwardFourier as Ec
+import rtpinn as Ec
 import configparser
 import matplotlib
 

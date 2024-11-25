@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from datetime import datetime
 import numpy as np
-import ForwardFourier as Ec
+import rtpinn as Ec
 import torch.utils.data
 import sys
 import time

@@ -21,6 +21,7 @@ scenarios_path = **path to scenarios directoryt**
 
 ### 2. Instantiate and Train a Model
 To start a new scenario, import and initialize the `RTPINN` class with training and model properties:
+
 ```python
 from rtpinn import RTPINN
 
@@ -33,7 +34,7 @@ tr_pr = {
     "steps_lbfgs": 1,
     "nmom": 16,
     "I_0": 1,
-    "scenario_type": "lrt", #set scenario type either lrt or file
+    "scenario_type": "lrt",  # set scenario type either lrt or file
     "scenario_name": "sza_0_continental_clean_02",
 }
 
@@ -42,9 +43,9 @@ model_pr = {
     "hidden_layers": 8,
     "neurons": 30,
     "activation": "tanh",
-    'load_model': "no model", #for loading a pretrained model write here the model name
-    'save_model': True, #to save the model after training according to model_name
-    'retrain': False, #flag to retrain the model or directly use the pretrained model
+    'load_model': "no model",  # for loading a pretrained model write here the model name
+    'save_model': True,  # to save the model after training according to model_name
+    'retrain': False,  # flag to retrain the model or directly use the pretrained model
 }
 
 rtpinn = RTPINN(tr_pr, model_pr)

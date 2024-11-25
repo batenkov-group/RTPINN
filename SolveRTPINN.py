@@ -2,20 +2,10 @@
 import os
 import torch
 import matplotlib.pyplot as plt
-import pandas as pd
 import numpy as np
 import configparser
-import ForwardFourier as Ec
-import pprint
-from datetime import datetime
+import rtpinn
 
-# Environment Setup
-# Uncomment these lines if you need to set specific CUDA options
-# os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-# os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
-
-# Set device
 if torch.cuda.is_available():
     dev = torch.device("cuda:1")
 else:
@@ -47,18 +37,18 @@ brdf_dict = {
 tr_pr = {
     'sampling_method': "sobol",
     'sampling_seed': 21,
-    'n_coll': 10000,
-    'n_b': 1000,
+    'n_coll': 100000,
+    'n_b': 10000,
     "epochs": 30000,
     "epochs_adam": 0,
     "steps_lbfgs": 1,
     "nmom": 16,
     "I_0": 1,
     "scaling_factor": 1,
-    "N_S": 8,
-    "N_R": 8,
+    "N_S": 16,
+    "N_R": 16,
     "scenario_type": "lrt",
-    "scenario_name": "sza_45_continental_clean_02",
+    "scenario_name": "sunset_red",
     "brdf_dict": brdf_dict,
     "save_results": True,
     "final_loss": 1,
@@ -67,25 +57,25 @@ tr_pr = {
 
 # Model parameters
 model_pr = {
-    "model_name": "sza_45_continental_clean_02_1e4",
+    "model_name": "sunset_red",
     "hidden_layers": 12,
     "neurons": 50,
     "residual_parameter": 1,
     "activation": "tanh",
     "n_mode": 16,
-    'load_model': "sza_45_continental_clean_02_1e4",
-    'save_model': False,
+    'load_model': "no model",
+    'save_model': True,
     'retrain': False,
 }
 
 # Initialize the RTPINN Model
-rtpinn = Ec.RTPINN(tr_pr, model_pr)
+rtpinn = rtpinn.RTPINN(tr_pr, model_pr)
 model = rtpinn.solve_rte(model_pr)
 print(f"Model name: {model_pr['model_name']}")
 
 # Visualization
 if tr_pr['scenario_type'] == "lrt":
-    scenario_path = os.path.join(Ec.scenarios_path, 'lrt', tr_pr['scenario_name'])
+    scenario_path = os.path.join(rtpinn.scenarios_path, 'lrt', tr_pr['scenario_name'])
     lrt_results = np.load(os.path.join(scenario_path, 'disort_output_file.npz'))
 
     # Plotting Top of Atmosphere (TOA) Radiance
@@ -93,7 +83,7 @@ if tr_pr['scenario_type'] == "lrt":
         tau_list = [0]
         correction_total = lrt_results['correction_st'][0, :, ii, 0] - lrt_results['correction_st'][0, :, ii, 1] - \
                            lrt_results['correction_nd'][0, :, ii]
-        radiance_top_pinn = Ec.plot_1D(model, tau_list, lrt_results['mu'], (np.pi / 180) * lrt_results['phi'][ii],
+        radiance_top_pinn = rtpinn.plot_1D(model, tau_list, lrt_results['mu'], (np.pi / 180) * lrt_results['phi'][ii],
                                        scale=lrt_results['scale'], label='PINN', fourier=True,
                                        correction=correction_total)
         plt.plot(lrt_results['mu'], lrt_results['radiance_mat'][0, :, ii], label='LRT')
@@ -109,7 +99,7 @@ if tr_pr['scenario_type'] == "lrt":
         tau_list = [1.0]
         correction_total = lrt_results['correction_st'][1, :, ii, 0] - lrt_results['correction_st'][1, :, ii, 1] - \
                            lrt_results['correction_nd'][1, :, ii]
-        radiance_top_pinn = Ec.plot_1D(model, tau_list, lrt_results['mu'], (np.pi / 180) * lrt_results['phi'][ii],
+        radiance_top_pinn = rtpinn.plot_1D(model, tau_list, lrt_results['mu'], (np.pi / 180) * lrt_results['phi'][ii],
                                        scale=lrt_results['scale'], label='PINN', fourier=True,
                                        correction=correction_total)
         plt.plot(lrt_results['mu'], lrt_results['radiance_mat'][1, :, ii], label='LRT')
@@ -125,7 +115,7 @@ if heat_map:
     correction_total = lrt_results['correction_st'][:, :, 0, 0] - lrt_results['correction_st'][:, :, 0, 1] - \
                        lrt_results['correction_nd'][:, :, 0]
     tau_star = rtpinn.total_optical_depth.detach().cpu().numpy()[-1]
-    avg_radiance_pinn = Ec.plot_heatmap(model, lrt_results['z_alt'], lrt_results['mu'],
+    avg_radiance_pinn = rtpinn.plot_heatmap(model, lrt_results['z_alt'], lrt_results['mu'],
                                         lrt_results['z_tau'],
                                         scale=lrt_results['scale'], correction=correction_total, tau_star=tau_star)
     plt.colorbar(label=r"$I(\tau,\mu)$ [$mW/(m^2 nm\cdot sr)]$")
@@ -152,5 +142,5 @@ if sky_map:
     mu = np.linspace(0, 1, 100)
     phi = np.linspace(0, 360, 100)
     tau_list = [0.0]
-    pinn_rad = Ec.plot_skymap(model, tau_list, mu, phi * (np.pi / 180), direction='up',scale=1)
+    pinn_rad = rtpinn.plot_skymap(model, tau_list, mu, phi * (np.pi / 180), direction='up',scale=1)
     plt.show()

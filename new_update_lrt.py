@@ -19,7 +19,7 @@ def update_lrt_scenario(alt_vec=None, update_scenario = True):
     # Solver Parameters
     plot_1d = True
 
-    opac_type = 'continental_polluted'
+    opac_type = 'continental_clean'
 
     # Methods
 
@@ -27,8 +27,8 @@ def update_lrt_scenario(alt_vec=None, update_scenario = True):
 
 
     # Components (Uncomment to change components)
-    # component_list = [lrp.OPACAerosol(opac_species='continental_polluted')]
-    component_list = [lrp.Cloud(tau=7)]
+    component_list = [lrp.OPACAerosol(opac_species=opac_type)]
+    # component_list = [lrp.Cloud(tau=7)]
     # component_list = []
 
     # Surface (Uncomment to change surface)
@@ -39,7 +39,7 @@ def update_lrt_scenario(alt_vec=None, update_scenario = True):
     # Scene
     solar_source = "../data/solar_flux/atlas_plus_modtran"
     atmosphere_profile = "../data/atmmod/afglus.dat"
-    sza = 45
+    sza = 80
     phi_0 = 0
     scene = lrp.Scene(solar_source=solar_source, atmosphere_profile=atmosphere_profile, sza=sza, phi_0=phi_0,
                       wavelength=555, components=component_list, surface=surface)
@@ -54,7 +54,7 @@ def update_lrt_scenario(alt_vec=None, update_scenario = True):
     lrp_obj.setup()
 
     # cod = 7
-    comment = f"temp_"
+    comment = f"dima_nov_"
 
     if len(component_list) > 0:
         if isinstance(component_list[0], lrp.OPACAerosol):
@@ -62,7 +62,7 @@ def update_lrt_scenario(alt_vec=None, update_scenario = True):
         elif  isinstance(component_list[0], lrp.Cloud):
             scenario_name = f'{comment}sza_{sza}_cloud_0{round(surface.albedo * 10)}'
 
-    # scenario_name = "heatmap_paper"
+    scenario_name = "sunset_green"
     print(scenario_name)
     if alt_vec is None:
         z_tau = ['TOA', 'BOA']
