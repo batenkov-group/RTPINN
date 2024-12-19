@@ -23,11 +23,16 @@ pi = np.pi
 extrema_values = None
 space_dimensions = 1
 
-# torch.cuda.set_device(1)
+DEFAULT_DTYPE = torch.float64
 if torch.cuda.is_available():
-    dev = torch.device('cuda:1')
+    dev = torch.device("cuda:0")
+elif torch.mps.is_available():
+    dev = torch.device("mps")
+    torch.set_default_dtype(torch.float32)
+    DEFAULT_DTYPE = torch.float32
 else:
     dev = torch.device("cpu")
+print(f"Using device: {dev}, default dtype: {torch.get_default_dtype()}")
 
 config = configparser.ConfigParser()
 config.read('init_file.ini')
@@ -85,9 +90,9 @@ class RTPINN():
         if disort_struct.delta_M_Method:
             self.initialize_delta_m_method(disort_struct)
         else:
-            self.total_optical_depth = torch.tensor(disort_struct.long_table.total_optical_depth).to(dev)
-            self.coef_mat = torch.tensor(disort_struct.phase_table.coef).to(dev)
-            self.ssa = torch.tensor(disort_struct.long_table.ssa).to(dev)
+            self.total_optical_depth = torch.tensor(disort_struct.long_table.total_optical_depth, dtype=DEFAULT_DTYPE).to(dev)
+            self.coef_mat = torch.tensor(disort_struct.phase_table.coef, dtype=DEFAULT_DTYPE).to(dev)
+            self.ssa = torch.tensor(disort_struct.long_table.ssa, dtype=DEFAULT_DTYPE).to(dev)
 
         if self.lambertian:
             self.ground_albedo = disort_struct.bottom_albedo
@@ -95,11 +100,11 @@ class RTPINN():
             self.brdf_dict = copy.deepcopy(self.tr_pr['brdf_dict'])
 
     def initialize_delta_m_method(self, disort_struct):
-        self.total_optical_depth = torch.tensor(disort_struct.long_table.dm_total_optical_depth).to(dev)
-        self.coef_mat_org = torch.tensor(np.stack(disort_struct.phase_table.coef)).to(dev)
-        self.coef_mat = torch.zeros_like(self.coef_mat_org)
-        self.ssa = torch.tensor(disort_struct.long_table.dm_ssa).to(dev)
-        self.dm_separated_fraction = torch.tensor(disort_struct.long_table.dm_separated_fraction).to(dev)
+        self.total_optical_depth = torch.tensor(disort_struct.long_table.dm_total_optical_depth, dtype=DEFAULT_DTYPE).to(dev)
+        self.coef_mat_org = torch.tensor(np.stack(disort_struct.phase_table.coef), dtype=DEFAULT_DTYPE).to(dev)
+        self.coef_mat = torch.zeros_like(self.coef_mat_org, dtype=DEFAULT_DTYPE)
+        self.ssa = torch.tensor(disort_struct.long_table.dm_ssa, dtype=DEFAULT_DTYPE).to(dev)
+        self.dm_separated_fraction = torch.tensor(disort_struct.long_table.dm_separated_fraction, dtype=DEFAULT_DTYPE).to(dev)
 
         for ii in range(self.coef_mat_org.shape[0]):
             for jj in range(self.coef_mat_org.shape[1]):
@@ -362,11 +367,11 @@ class RTPINN():
         x0 = torch.tensor(()).new_full(size=(int(n_boundary / 2), 1), fill_value=float(self.domain_values[0, 0]))
         x1 = torch.tensor(()).new_full(size=(int(n_boundary / 2), 1), fill_value=float(self.domain_values[0, 1]))
         x = torch.cat([x0, x1], 0).to(dev)
-        mu = torch.cat([mu0, mu1], 0).to(dev)
+        mu = torch.tensor(torch.cat([mu0, mu1], 0), dtype=DEFAULT_DTYPE).to(dev)
         ub0 = torch.tensor(()).new_full(size=(int(n_boundary / 2), 1),
-                                        fill_value=0)
-        ub1 = torch.tensor(()).new_full(size=(int(n_boundary / 2), 1), fill_value=0.0)
-        ub = torch.cat([ub0, ub1], 0).to(dev)
+                                        fill_value=0, dtype=DEFAULT_DTYPE)
+        ub1 = torch.tensor(()).new_full(size=(int(n_boundary / 2), 1), fill_value=0.0, dtype=DEFAULT_DTYPE)
+        ub = torch.tensor(torch.cat([ub0, ub1], 0), dtype=DEFAULT_DTYPE).to(dev)
         if self.sampling_method in ["quadrature", "stream_quadrature"]:
             return torch.cat([x, mu], 1), ub, w
         else:
@@ -652,7 +657,7 @@ class RTPINN():
 
         return model
 
-    def load_or_initialize_model(self, model_pr, print_bool):
+    def load_or_initialize_model(self, model_pr, print_bool, device = torch.device('cpu')):
         if model_pr['load_model'] == "no model" or model_pr['retrain']:
             input_dimensions = len(self.parameters_values) + space_dimensions
             output_dimension = self.output_dimension
@@ -671,20 +676,16 @@ class RTPINN():
                               network_properties=model_pr)
                 torch.manual_seed(32)
                 init_xavier(model)
+                
+            model.to(device)
 
-            if torch.cuda.is_available():
-                print("Loading model on GPU")
-                model.cuda(device=dev)
         else:
             model = self.load_model(model_pr)
 
         return model
 
     def load_model(self, model_pr):
-        if torch.cuda.is_available():
-            return torch.load(f"./Model/{model_pr['load_model']}.pt", map_location=dev)
-        else:
-            return torch.load(f"./Model/{model_pr['load_model']}.pt", map_location=torch.device('cpu'))
+        return torch.load(f"./Model/{model_pr['load_model']}.pt", map_location=dev)
 
     def prepare_training_data(self):
         if self.sampling_method in ["quadrature", "stream_quadrature"]:

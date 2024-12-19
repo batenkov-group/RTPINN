@@ -1,1 +1,3 @@
 /Model/
+*.pyc
+*.DS_Store
