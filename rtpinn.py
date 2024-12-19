@@ -418,8 +418,8 @@ class RTPINN():
             self.u_boundary_multi_mod[:, mode_ind] = self.u_boundary_inf_mod
         # for the compute_ground_boundary function
         mu_prime, w = np.polynomial.legendre.leggauss(self.N_R)
-        mu_prime = torch.tensor(mu_prime).reshape(self.N_R, -1).to(dev)
-        self.w = torch.tensor(w).reshape(self.N_R, -1).float().to(dev)
+        mu_prime = torch.tensor(mu_prime, dtype=DEFAULT_DTYPE).reshape(self.N_R, -1).to(dev)
+        self.w = torch.tensor(w, dtype=DEFAULT_DTYPE).reshape(self.N_R, -1).float().to(dev)
         self.mu_prime = (0.5 * mu_prime + 0.5).float()  # S.Z 2401 moving the quadrature around [0,1]
         x_quad_ground = torch.tensor(()).new_full(size=(mu_prime.shape[0], 1), fill_value=self.domain_values[0, 1]).to(
             dev)
@@ -427,9 +427,9 @@ class RTPINN():
         # if self.lambertian == False:
         mu_g = x_boundary[x_boundary[:, 0] == torch.max(x_boundary[:, 0]), 1].to(dev)
         phi_prime, w = np.polynomial.legendre.leggauss(int(1500))
-        W = torch.tensor(w.reshape(len(w), 1).repeat(mu_g.shape[0], 1)).to(dev)
+        W = torch.tensor(w.reshape(len(w), 1).repeat(mu_g.shape[0], 1),dtype=DEFAULT_DTYPE).to(dev)
         phi_prime = pi + pi * phi_prime
-        phi_prime_tensor = torch.tensor(phi_prime).to(dev)  # Convert phi_prime to tensor and move to device
+        phi_prime_tensor = torch.tensor(phi_prime, dtype=DEFAULT_DTYPE).to(dev)  # Convert phi_prime to tensor and move to device
         mu_g_tensor = mu_g.to(dev)  # Ensure mu_g is also on the same device
 
         # Use meshgrid to generate a grid for computation
@@ -638,7 +638,7 @@ class RTPINN():
         """
         Solve the Radiative Transfer Equation (RTE) by training or loading a model.
         """
-        model = self.load_or_initialize_model(model_pr, print_bool)
+        model = self.load_or_initialize_model(model_pr, print_bool).to(dev)
 
         if model_pr['load_model'] == "no model" or model_pr['retrain']:
             # Prepare training data
