@@ -6,7 +6,7 @@ RTPINN is an implementation of a Physics-Informed Neural Network (PINN) designed
 
 You can install the requirements by running:
 ```bash
-pip install torch numpy pandas matplotlib scipy sobol-seq
+pip install torch numpy pandas matplotlib scipy sobol-seq xarray ipykernel
 ```
 
 ## Usage
