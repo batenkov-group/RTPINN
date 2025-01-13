@@ -23,7 +23,7 @@ scenarios_path = **path to scenarios directoryt**
 To start a new scenario, import and initialize the `RTPINN` class with training and model properties:
 
 ```python
-from rtpinn import RTPINN
+from pinns.rtpinn import RTPINN
 
 tr_pr = {
     'sampling_method': "sobol",

@@ -17,8 +17,9 @@ import torch.nn as nn
 import sobol_seq
 import time
 import configparser
-from torch.func import jacfwd,jacrev, vmap
-import montepython as mp
+from torch.func import jacfwd, vmap
+from montecarlo import montepython as mp
+
 pi = np.pi
 space_dimensions = 3
 
@@ -74,7 +75,7 @@ class RTPINN():
             self.coef_mat = torch.zeros(len(domain.x_edges) - 1, len(domain.y_edges) - 1, len(domain.z_edges) - 1, self.nmom)
             # TODO The Z axies is very weird it seems that z_lvl_base is supposed to be the first layer of the component but when I apply the
             #  EXT matrix it seems to be not in the correct shape, currenlty I just want to make sure this example works but it will need to be fixed in the future
-            self.coef_mat = torch.load("coef_mat.pt")
+            self.coef_mat = torch.load("../coef_mat.pt")
             for component in domain.components_list:
                 self.ext[:, :, component.z_lvl_base:-1] = torch.tensor(np.transpose(component.extinction, axes=(2, 1, 0)), device=dev)
                 self.ssa[:, :, component.z_lvl_base:-1] = torch.tensor(np.transpose(component.singleScatteringAlbedo, axes=(2, 1, 0)), device=dev)

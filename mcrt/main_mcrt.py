@@ -2,14 +2,14 @@ import numpy as np
 import pandas as pd
 import os
 import scene
-import mcrt as mcrt
+from mcrt import mcrt as mcrt
 import matplotlib.pyplot as plt
 if __name__ == '__main__':
 
     choice = "Mie"
     delta_m = True
 
-    od_profiles = pd.read_csv(os.path.join("Data", "profile_files", "feng_profile.csv"))
+    od_profiles = pd.read_csv(os.path.join("../Data", "profile_files", "feng_profile.csv"))
     od_profiles.aer_2 = 0.2 * od_profiles.aer_1
     od_profiles.aer_1 = 0.8 * od_profiles.aer_1
 

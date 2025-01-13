@@ -1,1 +1,5 @@
-/Model/
+Model/
+Figs/
+__pycache__/
+tests_file.py
+

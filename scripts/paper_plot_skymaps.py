@@ -1,11 +1,9 @@
 import numpy as np
-import pandas as pd
 from libradpy import libradpy as lrp
 import os
 from matplotlib import pyplot as plt
-from libradpy import disort_parser
 # from ImportFileORG import *
-import rtpinn as Ec
+from pinns import rtpinn as Ec
 import configparser
 import matplotlib
 
@@ -38,7 +36,7 @@ def update_lrt_result(sat_view = True,direction = 'up', component = 'aerosol'):
     m2km = 10 ** (-3)
     wavelength = 555
 
-    lrp_obj = lrp.LibRadPy2(lrt_path)
+    lrp_obj = lrp.LibRadPy(lrt_path)
     lrp_obj.setup()
     os.chdir(lrt_path + '/auto_io_files')
     sza = 45

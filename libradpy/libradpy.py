@@ -16,11 +16,7 @@ import re
 import matplotlib
 from abc import ABC, abstractmethod
 
-os.environ['PATH'] += os.pathsep + '/bin/tex'
-os.environ['PATH'] += os.pathsep + '/bin/latex'
-os.environ['PATH'] += os.pathsep + '/bin/pdflatex'
-plt.rcParams['text.usetex'] = True
-plt.rcParams['text.latex.preamble'] = r'\usepackage{amsmath}'
+
 
 class Component(ABC):
     def __init__(self):
@@ -88,7 +84,7 @@ class Solver(ABC):
 
 
 class DisortSolver(Solver):
-    def __init__(self, n_streams, disort_intcor=True, print_details=True):
+    def __init__(self, n_streams, disort_intcor="phase", print_details=True):
         """
         :param n_streams: number of streams
         :param n_mom: number of Legandre moments
@@ -104,8 +100,7 @@ class DisortSolver(Solver):
         self.lines_l = []
         self.lines_l.append(f'rte_solver {self.solver_type}')
         self.lines_l.append(f'number_of_streams {self.n_streams}')
-        if not self.disort_intcor:
-            self.lines_l.append('disort_intcor off')
+        self.lines_l.append(f'disort_intcor {self.disort_intcor}')
         if self.print_details:
             self.lines_l.append('print_disort_info 1 3 5')
         return self.lines_l
@@ -257,7 +252,7 @@ class RossLiSurface(Surface):
 
 
 
-class LibRadPy2:
+class LibRadPy:
     # default constructor
     def __init__(self, path):
         self.path = path
@@ -274,8 +269,8 @@ class LibRadPy2:
         except:
             pass
 
-    def write_input_file(self, lines, filename, quiet = True):
-        with open(os.path.join(self.auto_io_path, filename), 'w') as f:
+    def write_input_file(self, path, lines, file_name, quiet = True):
+        with open(os.path.join(path, file_name), 'w') as f:
             for line in lines:
                 f.write(line + '\n')
             if quiet:
@@ -292,7 +287,7 @@ class LibRadPy2:
         lines.extend(eval_pts.gen_lrt_input())
         return lines
 
-    def run_uvspec(self, input_file, output_file='uvspec_output.out', scenario_name="", scenarios_path="",delete_setup_files = True):
+    def run_uvspec(self, input_file, output_file='uvspec_output.out', scenario_name="", scenarios_path=""):
         """Runs the uvspec command with the given input file and output file.
 
         If a scenario name is provided, the output file is saved in a new directory with that name.
@@ -305,13 +300,6 @@ class LibRadPy2:
         """
         cwd = os.getcwd()
         os.chdir(self.auto_io_path)
-        if delete_setup_files:
-            try:
-                os.remove('correction_st.txt')
-                os.remove('correction_nd.txt')
-                os.remove('scale_file.txt')
-            except:
-                pass
 
         UVSPEC_COMMAND = self.path + 'bin/uvspec <'
 
@@ -319,14 +307,14 @@ class LibRadPy2:
         if scenario_name:
             scenario_dir = os.path.join(scenarios_path,'lrt', scenario_name)
             if not os.path.exists(scenario_dir):
-                os.mkdir(scenario_dir)
+                print("Scenario Folder doesn't exist!")
+                return 0
             else:
                 print("Scenario exists!!!")
             output_file_scenario = os.path.join(scenario_dir, output_file)
             command = UVSPEC_COMMAND + input_file + '>' + output_file_scenario
             output = os.popen(command).read()
             print(output)
-        # TODO for some reason running Libradtran works only inside its installation directory
         # Then just run libradtran for results
         command = UVSPEC_COMMAND + input_file + '> ' + os.path.join(self.path, 'auto_io_files', output_file)
         output = os.popen(command).read()
@@ -418,6 +406,31 @@ class LibRadPy2:
                                                    1], header_params, correction_st_mat, correction_nd_mat
                 return radiance_values[:, 2:], radiance_values[:, 1], correction_st_mat, correction_nd_mat
 
+    def read_output_intensity_new(self, mu_vec, file_name='uvspec_output.out', print_status = True):
+        if print_status:
+            print("Reading Outputs from file:", file_name)
+        N = len(mu_vec)
+        disort_output_line = find_phrase_lines(file_name, ' *********  I N T E N S I T I E S  *********')
+        with open(file_name) as f:
+            lines = f.readlines()
+            outputs_disort = lines[disort_output_line + 7:disort_output_line + 7 + N]
+            for ii, line in enumerate(outputs_disort):
+                outputs_disort[ii] = [float(x) for x in line[10:].replace('\n', "").split(' ') if len(x) > 0]
+            radiance_values_disort = np.array(outputs_disort)
+        with open(file_name) as f:
+            lines = f.readlines()
+            outputs = lines[-N:]
+            for ii, line in enumerate(outputs):
+                outputs[ii] = [float(x) for x in line.replace('\n', "").split(' ') if len(x) > 0]
+            output_df = pd.DataFrame(outputs)
+            radiance_values = output_df.values
+            header = "".join(lines[-N - 2:-N]).replace("\n", "")
+            header_params = [float(x) for x in header.split(" ") if len(x) > 2]
+        # the scale val is the ratio between the output of the libradtran and the output of the disort
+        valid_indices = radiance_values_disort[:, 1] != 0
+        scale_val = np.median(radiance_values[valid_indices, 2] / radiance_values_disort[valid_indices, 1])
+        return radiance_values[:, 2:], radiance_values[:, 1], header_params, scale_val
+
 
     def read_out_mystic(self):
         file_name = 'uvspec_output.out'
@@ -449,7 +462,6 @@ class LibRadPy2:
 def array_to_str(num_arr):
     return_str = ""
     for num in num_arr:
-        # TODO add precision
         return_str += str('{0:.4f}'.format(num)) + " "
     return return_str
 
@@ -597,113 +609,8 @@ class PhaseTable:
 
 
 class DisortStruct:
-    def __init__(self, lrt_path=[], disort_setup=[], disort_tabl=[], disort_phase_table=0):
-        if type(disort_setup) == str:
-            f = open(lrt_path + '/auto_io_files/setup_files/' + disort_setup, "r")
-            lines_list = f.readlines()
-            self.gen_time = disort_setup[10:-8] + "_" + disort_setup[-8:-4]
-            split_str = lines_list[6].split(',')
-            self.n_streams = int(split_str[1].strip())
-            split_str = lines_list[7].split(',')
-            self.n_comp_layers = int(split_str[1].strip())
-            split_str = lines_list[8].split(',')
-            self.user_optical_depth = float(split_str[1].strip())
-            split_str = lines_list[9].split(',')
-            self.optical_depths = float(split_str[1].strip())
-            split_str = lines_list[10].split(',')
-            try:
-                self.user_polar_angle_cosines = int(split_str[1].strip())
-                split_str = lines_list[11].split(',')
-                self.polar_cosines = [float(xx.strip()) for xx in split_str[1:-1]]
-                split_str = lines_list[12].split(',')
-                self.user_azimuthal_angles = int(split_str[1].strip())
-                split_str = lines_list[13].split(',')
-                self.azimuthal_angles = [float(xx.strip()) for xx in split_str[1:-1]]
-                split_str = lines_list[14].split(',')
-                self.boundary_condition_flag = split_str[1].strip()
-                split_str = lines_list[15].split(',')
-                self.incident_beam_intensity = float(split_str[1].strip())
-                split_str = lines_list[16].split(',')
-                self.polar_angle_cosine = float(split_str[1].strip())
-                split_str = lines_list[17].split(',')
-                self.azimuth_angle = float(split_str[1].strip())
-                split_str = lines_list[18].split(',')
-                self.plus_isotropic_incident_intensity = float(split_str[1].strip())
-                split_str = lines_list[19].split(',')
-                self.bottom_albedo = float(split_str[1].strip())  # assumes Lambertian
-                split_str = lines_list[20].split(',')
-                self.delta_M_Method = bool(split_str[1].strip())
-                split_str = lines_list[21].split(',')
-                self.uses_TMS_IMS_method = bool(split_str[1].strip())
-                self.calculation_desc = lines_list[22]
-                split_str = lines_list[23].split(',')
-                self.relative_convergence_criterion_az = float(split_str[1].strip())
-            except Exception as e:
-                self.gen_time = disort_setup[10:-8] + "_" + disort_setup[-8:-4]
-                split_str = lines_list[6].split(',')
-                self.n_streams = int(split_str[1].strip())
-                split_str = lines_list[7].split(',')
-                self.n_comp_layers = int(split_str[1].strip())
-                split_str = lines_list[8].split(',')
-                self.user_optical_depth = float(split_str[1].strip())
-                split_str = lines_list[9].split(',')
-                self.optical_depths = float(split_str[1].strip())
-                split_str = lines_list[10].split(',')
-                self.boundary_condition_flag = split_str[1].strip()
-                split_str = lines_list[11].split(',')
-                self.incident_beam_intensity = float(split_str[1].strip())
-                split_str = lines_list[12].split(',')
-                self.polar_angle_cosine = float(split_str[1].strip())
-                split_str = lines_list[13].split(',')
-                self.azimuthal_angles = [float(xx.strip()) for xx in split_str[1:-1]]
-                split_str = lines_list[14].split(',')
-                self.plus_isotropic_incident_intensity = float(split_str[1].strip())
-                split_str = lines_list[15].split(',')
-                self.bottom_albedo = float(split_str[1].strip())  # assumes Lambertian
-                split_str = lines_list[16].split(',')
-                self.delta_M_Method = bool(split_str[1].strip())
-                split_str = lines_list[17].split(',')
-                self.uses_TMS_IMS_method = bool(split_str[1].strip())
-                # split_str = lines_list[18].split(',')
-                self.calculation_desc = lines_list[18]
-                split_str = lines_list[19].split(',')
-                self.relative_convergence_criterion_az = float(split_str[1].strip())
-                split_str = lines_list[20].split(',')
-                try:
-                    self.user_tau = float(split_str[1].strip())
-                except Exception as e:
-                    split_str = lines_list[21].split(',')
-                    self.user_tau = float(split_str[1].strip())
-
-            f = open(lrt_path + '/auto_io_files/setup_files/' + disort_table, "r")
-            lines_list = f.readlines()
-            split_str = lines_list[0].split(',')
-            # split_str = (lines_list[1].replace(" ", "")).split(',')
-            # split_str = [float(x) for x in split_str if len(x) > 0]
-            # temp_last_layer_str = (lines_list[2].replace(" ", "").strip()).split(',')
-            # split_str.append(float(temp_last_layer_str[0]))
-            # self.short_table = ShortTable(split_str)
-            self.long_table = LongTable()
-            for ii in range(1, len(lines_list)):
-                self.long_table.append(lines_list[ii])
-            f = open(lrt_path + '/auto_io_files/setup_files/' + disort_phase_table, "r")
-            lines_list = f.readlines()
-            split_str = lines_list[1].split(',')
-            self.phase_table = PhaseTable((split_str[1].strip()))
-            skip = False
-            for ii in range(3, len(lines_list)):
-                # for some reason lines are breaking in the C code, this will allow us to parse broken lines
-                if ii < (len(lines_list) - 1) and ((lines_list[ii + 1]).replace(" ", ""))[0] != '|' and not skip:
-                    split_str = (lines_list[ii] + lines_list[ii + 1]).replace("\n", "")
-                    self.phase_table.append(split_str)
-                    skip = True
-                else:
-                    split_str = lines_list[ii]
-                    if not skip:
-                        self.phase_table.append(split_str)
-                        skip = False
-                    else:
-                        skip = False
+    def __init__(self):
+        print("DisortStruct object created")
 
     def init_from_output(self, output_file):
         phase_line = find_phrase_lines(output_file, 'Number of Phase Function Moments')
@@ -735,10 +642,19 @@ class DisortStruct:
                 self.lambertian = True
             else:
                 self.lambertian = False
-            if  re.search(r' Does not use delta-M method', file_content):
-                self.delta_M_Method = False
-            else:
-                self.delta_M_Method = True
+            self.delta_M_Method = not re.search(r' Does not use delta-M method', file_content)
+            if 'Uses TMS/IMS method' in file_content:
+                tms_start = find_phrase_lines(output_file, 'Phase Function Moments Table:')
+                if tms_start is not None:
+                    mu_phase_line = lines[tms_start + 1].split()
+                    self.mu_phase = [float(mu) for mu in mu_phase_line[1:]]
+
+                    self.phase_function = []
+                    for line in lines[tms_start + 2:]:
+                        if line.strip() == '':
+                            break
+                        layer_data = [float(value) for value in line.split()[1:]]
+                        self.phase_function.append(layer_data)
             self.long_table = LongTable()
             self.phase_table = PhaseTable(self.n_mom)
             for ii in range(profile_line + 1, phase_line):

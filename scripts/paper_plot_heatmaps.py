@@ -4,17 +4,10 @@ import os
 # os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 # os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
-import torch
 import matplotlib.pyplot as plt
-import pandas as pd
-from datetime import datetime
 import numpy as np
-import rtpinn as Ec
+from pinns import rtpinn as Ec
 import torch.utils.data
-import sys
-import time
-import pprint
-import torch.optim as optim
 import configparser
 
 # set path
