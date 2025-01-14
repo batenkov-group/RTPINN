@@ -11,7 +11,6 @@ import numpy as np
 import subprocess
 import io
 import os
-import xarray as xr
 import re
 import matplotlib
 from abc import ABC, abstractmethod
@@ -254,18 +253,21 @@ class RossLiSurface(Surface):
 
 class LibRadPy:
     # default constructor
-    def __init__(self, path):
+    def __init__(self, path, outpath):
         self.path = path
-        self.auto_io_path = os.path.join(path, "auto_io_files")
-        self.auto_input_path = os.path.join(path, "auto_io_files", "UVSPEC_AEROSOL_AUTO.INP")
+        self.outpath = outpath
+        self.auto_io_path = os.path.join(self.outpath, "auto_io_files")
+        self.auto_input_path = os.path.join(self.outpath, "auto_io_files", "UVSPEC_AEROSOL_AUTO.INP")
         self.skip_list = []
         self.skip = False
+        
+        self.setup()
 
     def setup(self):
         try:
             print('Setting up libRadtran auto_io_files directory')
-            os.mkdir(os.path.join(self.path + 'auto_io_files'))
-            os.mkdir(os.path.join(self.path + 'auto_io_files', 'setup_files'))
+            os.makedirs(os.path.join(self.outpath,'auto_io_files'), exist_ok=True)
+            os.makedirs(os.path.join(self.outpath, 'auto_io_files', 'setup_files'), exist_ok=True)
         except:
             pass
 
@@ -301,7 +303,7 @@ class LibRadPy:
         cwd = os.getcwd()
         os.chdir(self.auto_io_path)
 
-        UVSPEC_COMMAND = self.path + 'bin/uvspec <'
+        UVSPEC_COMMAND = 'uvspec <'
 
         # First generate the scenario
         if scenario_name:

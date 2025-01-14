@@ -2,4 +2,6 @@ Model/
 Figs/
 __pycache__/
 tests_file.py
-
+scenarios/
+.DS_Store
+randomseed
