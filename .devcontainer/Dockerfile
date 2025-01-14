@@ -27,6 +27,11 @@ RUN wget -q --user=libRadtran --password=libRadtran "http://www.libradtran.org/d
     cd .. && \
     rm -rf libRadtran-2.0.6* cflags ldflags
 
+RUN wget -q "http://www.meteo.physik.uni-muenchen.de/~libradtran/lib/exe/fetch.php?media=download:optprop_v2.1.tar.gz" -O optprop_v2.1.tar.gz && \
+    tar xzf optprop_v2.1.tar.gz && \
+    cp -r data/* /usr/local/share/libRadtran/data/ && \
+    rm -rf optprop_v2.1.tar.gz data
+
 # Install uv
 RUN pip install uv
 
