@@ -8,14 +8,18 @@
     "customizations": {
         "vscode": {
             "extensions": [
-            "ms-vscode.cpptools",
-            "ms-vscode.cmake-tools",
-            "twxs.cmake",             
-            "ms-python.python",
-            "ms-toolsai.jupyter",
-            "donjayamanne.python-environment-manager"
-            ]
-        },
+                "ms-vscode.cpptools",
+                "ms-vscode.cmake-tools",
+                "twxs.cmake",             
+                "ms-python.python",
+                "ms-toolsai.jupyter",
+                "donjayamanne.python-environment-manager"
+            ],
+            "settings": {
+                "python.defaultInterpreterPath": "/workspaces/RTPINN/.venv/bin/python",
+                "python.terminal.activateEnvironment": true
+            }
+        }
     },
     "features": {
         "ghcr.io/devcontainers/features/common-utils:2": {
@@ -23,6 +27,7 @@
             "configureZshAsDefaultShell": true,
             "installOhMyZsh": true,
             "upgradePackages": true
-        },
+        }
     },
+    "postCreateCommand": "uv venv .venv && . .venv/bin/activate && uv pip install -r requirements.txt"
 }
