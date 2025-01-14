@@ -1,0 +1,7 @@
+torch
+numpy
+pandas
+matplotlib
+scipy
+ipykernel
+sobol-seq 
