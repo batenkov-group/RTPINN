@@ -261,15 +261,6 @@ class LibRadPy:
         self.skip_list = []
         self.skip = False
         
-        self.setup()
-
-    def setup(self):
-        try:
-            print('Setting up libRadtran auto_io_files directory')
-            os.makedirs(os.path.join(self.outpath,'auto_io_files'), exist_ok=True)
-            os.makedirs(os.path.join(self.outpath, 'auto_io_files', 'setup_files'), exist_ok=True)
-        except:
-            pass
 
     def write_input_file(self, path, lines, file_name, quiet = True):
         with open(os.path.join(path, file_name), 'w') as f:
@@ -301,7 +292,7 @@ class LibRadPy:
             scenarios_path (str): The path to the scenarios directory. Defaults to "".
         """
         cwd = os.getcwd()
-        os.chdir(self.auto_io_path)
+        os.chdir(os.path.join(self.path, 'examples'))
 
         UVSPEC_COMMAND = 'uvspec <'
 
@@ -317,11 +308,7 @@ class LibRadPy:
             command = UVSPEC_COMMAND + input_file + '>' + output_file_scenario
             output = os.popen(command).read()
             print(output)
-        # Then just run libradtran for results
-        command = UVSPEC_COMMAND + input_file + '> ' + os.path.join(self.path, 'auto_io_files', output_file)
-        output = os.popen(command).read()
-        os.chdir(cwd)
-        print(output)
+
 
     def read_output_intensity_full(self, mu_vec, phi_vec, file_name='uvspec_output.out', return_header=False, scale=False,
                                    disort_output=False, corrections=False, print_status = True):

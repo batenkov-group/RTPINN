@@ -121,6 +121,7 @@ def update_lrt_scenario(alt_vec=None, update_scenario = True):
         if plot_1d:
             plt.title(str(x))
             plt.legend()
+            plt.savefig(os.path.join(figs_path, "radiance_1d_plot.pdf"), bbox_inches='tight')
             plt.show()
 
     if scenario_name != "":
