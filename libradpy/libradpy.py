@@ -11,7 +11,6 @@ import numpy as np
 import subprocess
 import io
 import os
-import xarray as xr
 import re
 import matplotlib
 from abc import ABC, abstractmethod
@@ -254,20 +253,14 @@ class RossLiSurface(Surface):
 
 class LibRadPy:
     # default constructor
-    def __init__(self, path):
+    def __init__(self, path, outpath):
         self.path = path
-        self.auto_io_path = os.path.join(path, "auto_io_files")
-        self.auto_input_path = os.path.join(path, "auto_io_files", "UVSPEC_AEROSOL_AUTO.INP")
+        self.outpath = outpath
+        self.auto_io_path = os.path.join(self.outpath, "auto_io_files")
+        self.auto_input_path = os.path.join(self.outpath, "auto_io_files", "UVSPEC_AEROSOL_AUTO.INP")
         self.skip_list = []
         self.skip = False
-
-    def setup(self):
-        try:
-            print('Setting up libRadtran auto_io_files directory')
-            os.mkdir(os.path.join(self.path + 'auto_io_files'))
-            os.mkdir(os.path.join(self.path + 'auto_io_files', 'setup_files'))
-        except:
-            pass
+        
 
     def write_input_file(self, path, lines, file_name, quiet = True):
         with open(os.path.join(path, file_name), 'w') as f:
@@ -299,9 +292,9 @@ class LibRadPy:
             scenarios_path (str): The path to the scenarios directory. Defaults to "".
         """
         cwd = os.getcwd()
-        os.chdir(self.auto_io_path)
+        os.chdir(os.path.join(self.path, 'examples'))
 
-        UVSPEC_COMMAND = self.path + 'bin/uvspec <'
+        UVSPEC_COMMAND = 'uvspec <'
 
         # First generate the scenario
         if scenario_name:
@@ -315,11 +308,7 @@ class LibRadPy:
             command = UVSPEC_COMMAND + input_file + '>' + output_file_scenario
             output = os.popen(command).read()
             print(output)
-        # Then just run libradtran for results
-        command = UVSPEC_COMMAND + input_file + '> ' + os.path.join(self.path, 'auto_io_files', output_file)
-        output = os.popen(command).read()
-        os.chdir(cwd)
-        print(output)
+
 
     def read_output_intensity_full(self, mu_vec, phi_vec, file_name='uvspec_output.out', return_header=False, scale=False,
                                    disort_output=False, corrections=False, print_status = True):

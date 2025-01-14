@@ -36,8 +36,8 @@ def update_lrt_scenario(alt_vec=None, update_scenario = True):
     # surface = lrp.RPVSurface(rho0=0.076, k=0.648, theta=-0.290, sigma=0, t1=0, t2=0, scale=1)
 
     # Scene
-    solar_source = "../data/solar_flux/atlas_plus_modtran"
-    atmosphere_profile = "../data/atmmod/afglus.dat"
+    solar_source = os.path.join(lrt_path, "data/solar_flux/atlas_plus_modtran")
+    atmosphere_profile = os.path.join(lrt_path,"data/atmmod/afglus.dat")
     sza = 60
     phi_0 = 0
     scene = lrp.Scene(solar_source=solar_source, atmosphere_profile=atmosphere_profile, sza=sza, phi_0=phi_0,
@@ -49,7 +49,7 @@ def update_lrt_scenario(alt_vec=None, update_scenario = True):
     phi = [0]
 
 
-    lrp_obj = lrp.LibRadPy(lrt_path)
+    lrp_obj = lrp.LibRadPy(lrt_path, outpath=scenarios_path)
 
     # cod = 7
     comment = f"temp_polluted_clean_8"
@@ -91,7 +91,7 @@ def update_lrt_scenario(alt_vec=None, update_scenario = True):
             if scenario_name:
                 scenario_dir = os.path.join(scenarios_path, 'lrt', scenario_name)
                 if not os.path.exists(scenario_dir):
-                    os.mkdir(scenario_dir)
+                    os.makedirs(scenario_dir, exist_ok=True)
                 else:
                     print("Scenario exists!!!")
             lrp_obj.write_input_file(path=scenario_dir, lines=lines, file_name = 'UVSPEC_IO_AUTO.INP', quiet=True)
@@ -121,6 +121,7 @@ def update_lrt_scenario(alt_vec=None, update_scenario = True):
         if plot_1d:
             plt.title(str(x))
             plt.legend()
+            plt.savefig(os.path.join(figs_path, "radiance_1d_plot.pdf"), bbox_inches='tight')
             plt.show()
 
     if scenario_name != "":
