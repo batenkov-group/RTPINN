@@ -1,8 +1,6 @@
-import subprocess
-import os
 from datetime import datetime
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
+
 
 import numpy as np
 import pandas as pd
@@ -13,6 +11,7 @@ import io
 import os
 import re
 import matplotlib
+import shutil
 from abc import ABC, abstractmethod
 
 
@@ -136,9 +135,6 @@ class MysticSolver(Solver):
         self.lines_l.append(f'mc_vroom {lrt_bool_to_str(self.mc_vroom)}')
         return self.lines_l
 
-
-
-
 def lrt_bool_to_str(var):
     return 'on' if var else 'off'
 
@@ -253,14 +249,12 @@ class RossLiSurface(Surface):
 
 class LibRadPy:
     # default constructor
-    def __init__(self, path, outpath):
+    def __init__(self, path, outpath, default_installation=True):
         self.path = path
         self.outpath = outpath
-        self.auto_io_path = os.path.join(self.outpath, "auto_io_files")
-        self.auto_input_path = os.path.join(self.outpath, "auto_io_files", "UVSPEC_AEROSOL_AUTO.INP")
         self.skip_list = []
         self.skip = False
-        
+        self.default_installation = default_installation
 
     def write_input_file(self, path, lines, file_name, quiet = True):
         with open(os.path.join(path, file_name), 'w') as f:
@@ -292,108 +286,30 @@ class LibRadPy:
             scenarios_path (str): The path to the scenarios directory. Defaults to "".
         """
         cwd = os.getcwd()
+        # The LibRadTran works only in a sub directory of the libradtran dir
         os.chdir(os.path.join(self.path, 'examples'))
-
-        UVSPEC_COMMAND = 'uvspec <'
+        if self.default_installation:
+            UVSPEC_COMMAND = 'uvspec <'
+        else:
+            UVSPEC_COMMAND = '../bin/uvspec <'
 
         # First generate the scenario
         if scenario_name:
             scenario_dir = os.path.join(scenarios_path,'lrt', scenario_name)
             if not os.path.exists(scenario_dir):
                 print("Scenario Folder doesn't exist!")
+                os.chdir(cwd)
                 return 0
             else:
-                print("Scenario exists!!!")
+                print("Scenario exists!")
             output_file_scenario = os.path.join(scenario_dir, output_file)
-            command = UVSPEC_COMMAND + input_file + '>' + output_file_scenario
+            shutil.copy(input_file, os.path.join(self.path, 'examples'))
+            examples_run_file =  os.path.join(self.path, 'examples', 'UVSPEC_IO_AUTO.INP')
+            command = UVSPEC_COMMAND + examples_run_file + '> ' + output_file_scenario
+            # command = UVSPEC_COMMAND + examples_run_file
             output = os.popen(command).read()
             print(output)
-
-
-    def read_output_intensity_full(self, mu_vec, phi_vec, file_name='uvspec_output.out', return_header=False, scale=False,
-                                   disort_output=False, corrections=False, print_status = True):
-        if print_status:
-            print("Reading Outputs from file:", file_name)
-        N = len(mu_vec)
-        if disort_output:
-            disort_output_line = find_phrase_lines(file_name, ' *********  I N T E N S I T I E S  *********')
-            with open(file_name) as f:
-                lines = f.readlines()
-                outputs = lines[disort_output_line + 7:disort_output_line + 7 + N]
-                for ii, line in enumerate(outputs):
-                    outputs[ii] = [float(x) for x in line[10:].replace('\n', "").split(' ') if len(x) > 0]
-                radiance_values = np.array(outputs)
-                header_params = None
-                # header = "".join(lines[disort_output_line-2:disort_output_line]).replace("\n","")
-                # header_params = [float(x) for x in header.split(" ") if len(x) > 2]
-        else:
-            with open(file_name) as f:
-                lines = f.readlines()
-                outputs = lines[-N:]
-                for ii, line in enumerate(outputs):
-                    outputs[ii] = [float(x) for x in line.replace('\n', "").split(' ') if len(x) > 0]
-                output_df = pd.DataFrame(outputs)
-                radiance_values = output_df.values
-                header = "".join(lines[-N - 2:-N]).replace("\n", "")
-                header_params = [float(x) for x in header.split(" ") if len(x) > 2]
-
-        correction_st_mat = np.zeros((len(mu_vec), len(phi_vec), 2))
-        correction_nd_mat = np.zeros((len(mu_vec), len(phi_vec)))
-        if corrections:
-            try:
-                correction_st = pd.read_table(os.path.join(self.auto_io_path,'setup_files', 'correction_st.txt'), sep='\s+', header=None,
-                                              names=['mu', 'phi', 'ussndm', 'ussp'])
-                for i, mu_val in enumerate(mu_vec):
-                    for j, phi_val in enumerate(phi_vec):
-                        subset = correction_st[(correction_st['mu'] == round(mu_val, 6)) & (
-                                correction_st['phi'] == round(np.pi / 180 * phi_val, 6))]
-                        correction_st_mat[i, j, 0] = subset['ussndm'].values[0] if not subset.empty else 0
-                        correction_st_mat[i, j, 1] = subset['ussp'].values[0] if not subset.empty else 0
-            except:
-                print('No first correction file found')
-                correction_st_mat = None
-
-            try:
-                correction_nd = pd.read_table(os.path.join(self.auto_io_path, 'setup_files', 'correction_st.txt'), sep='\s+', header=None,
-                                              names=['mu', 'phi', 'duims'])
-                for i, mu_val in enumerate(mu_vec):
-                    for j, phi_val in enumerate(phi_vec):
-                        subset = correction_nd[(correction_nd['mu'] == round(mu_val, 6)) & (
-                                correction_nd['phi'] == round(np.pi / 180 * phi_val, 6))]
-                        correction_nd_mat[i, j] = subset['duims'].values[0] if not subset.empty else 0
-            except:
-                print('No second correction file found')
-                correction_nd_mat = None
-        if disort_output:
-            if scale:
-                scale_table = pd.read_table(os.path.join(self.auto_io_path, 'setup_files', 'scale_file.txt'), sep=',',
-                                            header=None).to_numpy()
-                scale_val = scale_table[0, 3]
-                radiance_values = radiance_values * scale_val
-                if return_header:
-                    return radiance_values[:, 1:], radiance_values[:,
-                                                   1], header_params, scale_val, correction_st_mat, correction_nd_mat
-                return radiance_values[:, 1:], radiance_values[:, 1], scale_val, correction_st_mat, correction_nd_mat
-            else:
-                if return_header:
-                    return radiance_values[:, 1:], radiance_values[:,
-                                                   1], header_params, correction_st_mat, correction_nd_mat
-                return radiance_values[:, 1:], radiance_values[:, 1], correction_st_mat, correction_nd_mat
-        else:
-            if scale:
-                scale_table = pd.read_table(os.path.join(self.auto_io_path, 'setup_files', 'scale_file.txt'), sep=',',
-                                            header=None).to_numpy()
-                scale_val = scale_table[0, 3]
-                radiance_values = radiance_values * scale_val
-                if return_header:
-                    return radiance_values[:, 2:], radiance_values[:,
-                                                   1], header_params, scale_val, correction_st_mat, correction_nd_mat
-                return radiance_values[:, 2:], radiance_values[:, 1], scale_val, correction_st_mat, correction_nd_mat
-            else:
-                if return_header:
-                    return radiance_values[:, 2:], radiance_values[:,
-                                                   1], header_params, correction_st_mat, correction_nd_mat
-                return radiance_values[:, 2:], radiance_values[:, 1], correction_st_mat, correction_nd_mat
+            os.chdir(cwd)
 
     def read_output_intensity_new(self, mu_vec, file_name='uvspec_output.out', print_status = True):
         if print_status:
@@ -427,21 +343,17 @@ class LibRadPy:
             lines = f.readlines()
             return (lines[0].split())[1]
 
-    def read_rad_mystic(self, mu, phi, scale=False, zout='BOA'):
+    def read_rad_mystic(self, mu, phi, zout='BOA'):
         # in libradtran this file name is unchangable
         radiance_mat = np.zeros((len(mu), len(phi)))
+        # TODO Currently only supports TOA or BOA with the 49 layer case
         if zout == 'BOA':
             file_name = 'mc.rad'
         else:
-            file_name = 'mc49.rad'
-        # file_name = 'mc.rad'
+            examples_path = os.path.join(self.path, 'examples')
+            file_name = f"mc{max([int(f.split('mc')[1].split('.')[0]) for f in os.listdir(examples_path) if f.startswith('mc') and f.endswith('.rad') and f.split('mc')[1].split('.')[0].isdigit()])}.rad"
         cols = ['x[m]', 'y[m]', 'vza', 'vaa', 'asa', 'rad_direct', 'rad_diffuse', 'rad_escape']
-        df = pd.read_table(os.path.join(self.auto_io_path, file_name), sep='\s+', header=None, names=cols, index_col=False)
-        if scale:
-            # According to the libradtran file you should always use escae
-            scale_table = pd.read_table(os.path.join(self.auto_io_path, 'setup_files', 'scale_file.txt'), sep=',', header=None).to_numpy()
-            df['rad_diffuse'] = df['rad_escape'] * scale_table[0, 3]
-            df['rad_escape'] = df['rad_escape'] * scale_table[0, 3]
+        df = pd.read_table(os.path.join(self.path,'examples', file_name), sep='\s+', header=None, names=cols, index_col=False)
         for ii in range(len(phi)):
             radiance_mat[:, ii] = df['rad_diffuse'][df['vaa'] == phi[ii]].to_numpy()
         return radiance_mat

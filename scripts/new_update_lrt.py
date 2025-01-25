@@ -12,7 +12,7 @@ config.read(config_path)
 lrt_path = config['PATHS']['lrt_path']
 scenarios_path = config['PATHS']['scenarios_path']
 figs_path = config['PATHS']['figs_path']
-
+default_installation = config.getboolean('VARS', 'default_installation')
 
 def update_lrt_scenario(alt_vec=None, update_scenario = True):
     # Solver Parameters
@@ -22,7 +22,7 @@ def update_lrt_scenario(alt_vec=None, update_scenario = True):
 
     # Methods
 
-    methods = ['disort']
+    methods = ['mystic']
 
 
     # Components (Uncomment to change components)
@@ -36,20 +36,21 @@ def update_lrt_scenario(alt_vec=None, update_scenario = True):
     # surface = lrp.RPVSurface(rho0=0.076, k=0.648, theta=-0.290, sigma=0, t1=0, t2=0, scale=1)
 
     # Scene
-    solar_source = os.path.join(lrt_path, "data/solar_flux/atlas_plus_modtran")
-    atmosphere_profile = os.path.join(lrt_path,"data/atmmod/afglus.dat")
+    solar_source = "../data/solar_flux/atlas_plus_modtran"
+    atmosphere_profile = "../data/atmmod/afglus.dat"
+    # atmosphere_profile = os.path.join(lrt_path,"data/atmmod/afglus.dat")
     sza = 60
     phi_0 = 0
     scene = lrp.Scene(solar_source=solar_source, atmosphere_profile=atmosphere_profile, sza=sza, phi_0=phi_0,
                       wavelength=555, components=component_list, surface=surface)
 
     # Eval Pts
-    mu = np.arange(-0.95, 1, 0.011)
+    mu = np.arange(-0.95, 1, 0.11)
     mu_lowres = np.linspace(np.min(mu), np.max(mu), 50) # for mystic due to long runtime
     phi = [0]
 
 
-    lrp_obj = lrp.LibRadPy(lrt_path, outpath=scenarios_path)
+    lrp_obj = lrp.LibRadPy(lrt_path, outpath=scenarios_path, default_installation=default_installation)
 
     # cod = 7
     comment = f"temp_polluted_clean_8"
@@ -98,10 +99,11 @@ def update_lrt_scenario(alt_vec=None, update_scenario = True):
             lrp_obj.run_uvspec(os.path.join(scenario_dir, 'UVSPEC_IO_AUTO.INP'),
                                scenario_name=scenario_name, scenarios_path=scenarios_path)
             if method == 'mystic':
-                mystic_radiance[x_ind, :, :] = lrp_obj.read_rad_mystic(mu_lowres, phi, scale=True, zout=x)
+                mystic_radiance[x_ind, :, :] = lrp_obj.read_rad_mystic(mu_lowres, phi, zout=x)
                 if plot_1d:
-                    for mm in range(radiance_mat.shape[1]):
+                    for mm in range(mystic_radiance.shape[2]):
                         plt.plot(mu_lowres, mystic_radiance[x_ind, :, mm], '.', label=f'mystic_{phi[mm]}', )
+                        # plt.show()
             else:
                 radiance_mat, avg_radiance, header_params, scale = lrp_obj.read_output_intensity_new(mu, os.path.join(scenario_dir, "uvspec_output.out"))
                 z_avg_rad[x_ind, :] = avg_radiance.reshape(-1)
