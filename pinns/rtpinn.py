@@ -25,7 +25,7 @@ space_dimensions = 1
 
 # torch.cuda.set_device(1)
 if torch.cuda.is_available():
-    dev = torch.device('cuda:1')
+    dev = torch.device('cuda')
 else:
     dev = torch.device("cpu")
 
@@ -36,14 +36,15 @@ scenarios_path = config['PATHS']['scenarios_path']
 
 
 class RTPINN():
-    def __init__(self, tr_pr, model_pr, print_bool=True):
+    def __init__(self, tr_pr, model_pr, print_bool=True, initiallize_scenario = True):
         if print_bool:
             pprint.pprint(tr_pr)
 
         self.tr_pr = tr_pr
         self.input_dimensions = 1  # Spatial dimension
         self.initialize_parameters(tr_pr, model_pr)
-        self.initialize_scenario()
+        if initiallize_scenario:
+            self.initialize_scenario()
 
         # Define domain and parameter values
         self.domain_values = torch.tensor([[0.00, 1]])
@@ -75,8 +76,7 @@ class RTPINN():
             self.handle_file_scenario()
 
     def handle_lrt_scenario(self):
-        disort_struct = lrp.DisortStruct()
-        disort_struct.init_from_output(os.path.join(scenarios_path, 'lrt', self.scenario_name, "uvspec_output.out"))
+        disort_struct = lrp.DisortStruct(os.path.join(scenarios_path, 'lrt', self.scenario_name, "uvspec_output.out"))
         self.lambertian = disort_struct.lambertian
         self.mu_0 = disort_struct.mu_0
         self.phi_0 = disort_struct.phi_0
@@ -98,8 +98,13 @@ class RTPINN():
         self.tau_org = torch.tensor(disort_struct.long_table.total_optical_depth).to(dev)
         self.d_tau = torch.tensor(disort_struct.long_table.optical_depth).to(dev)
         self.tau_shifted = torch.concatenate((torch.tensor([0],device=dev), self.tau_org)).to(dev)
-        self.accurate_phase = torch.tensor(disort_struct.phase_function,device=dev)
-        self.mu_phase = torch.tensor(disort_struct.mu_phase, device=dev)
+        if disort_struct.phase_function is not None:
+            self.accurate_phase = torch.tensor(disort_struct.phase_function,device=dev)
+            self.mu_phase = torch.tensor(disort_struct.mu_phase, device=dev)
+
+        else:
+            self.accurate_phase = None
+            self.mu_phase = None
         self.ssa_org = torch.tensor(disort_struct.long_table.ssa).to(dev)
         self.total_optical_depth = torch.tensor(disort_struct.long_table.dm_total_optical_depth).to(dev)
         self.coef_mat_org = torch.tensor(np.stack(disort_struct.phase_table.coef)).to(dev)
@@ -1114,6 +1119,7 @@ class RTPINN():
                 print("Loading model on GPU")
                 model.cuda(device=dev)
         else:
+            print("model name:", model_pr['load_model'])
             model = self.load_model(model_pr)
 
         return model
@@ -1166,7 +1172,7 @@ class RTPINN():
         model_path = os.path.join("..", "Model", f"{model_pr['model_name']}.pt")
         model_pr_path = os.path.join("..", "Model", f"{model_pr['model_name']}_model_pr.csv")
         tr_pr_path = os.path.join("..", "Model", f"{model_pr['model_name']}_tr_pr.csv")
-
+        torch.save(model, model_path)
         pd.DataFrame(model_pr, index=[0]).to_csv(model_pr_path)
         pd.DataFrame(self.tr_pr, index=[0]).to_csv(tr_pr_path)
 
@@ -1330,8 +1336,7 @@ def plot_heatmap(model, alt_vec, mu, tau_vec, scale, correction, tau_star):
 
 class Pinns(nn.Module):
 
-    def __init__(self, input_dimension, output_dimension, network_properties, additional_models=None,
-                 solid_object=None):
+    def __init__(self, input_dimension, output_dimension, network_properties):
         super(Pinns, self).__init__()
         self.input_dimension = input_dimension
         self.output_dimension = output_dimension
@@ -1346,10 +1351,8 @@ class Pinns(nn.Module):
             [nn.Linear(self.neurons, self.neurons) for _ in range(self.n_hidden_layers - 1)])
         self.output_layer = nn.Linear(self.neurons, self.output_dimension)
 
-        self.solid_object = solid_object
-        self.additional_models = additional_models
-
         self.activation = activation(self.act_string)
+
 
     def forward(self, x):
         x = self.activation(self.input_layer(x))
@@ -1363,6 +1366,23 @@ class Pinns(nn.Module):
             fourier_sum = fourier_sum + self.forward(input_vec[:, 0:2])[:, mode].reshape(-1) * \
                           torch.cos(mode * (input_vec[:, 2])).to(dev).reshape(-1)
         return fourier_sum
+    def update_from_file(self, weight_file, params_file):
+        params_dict = torch.load(params_file)
+        weights = torch.load(weight_file)
+        # self.network_properties['model_name'] = params_file[:-6]
+        self.lambda_residual = params_dict['lambda_residual']
+        self.n_hidden_layers = params_dict['n_hidden_layers'] #TODO here it's with n and in other places it's without
+        self.neurons = params_dict['neurons']
+        self.act_string = params_dict['activation']
+        self.input_dimension = params_dict['input_dimension']
+        self.output_dimension = params_dict['output_dimension']
+        self.activation = activation(self.act_string)
+        self.input_layer = nn.Linear(self.input_dimension, self.neurons)
+        self.hidden_layers = nn.ModuleList(
+            [nn.Linear(self.neurons, self.neurons) for _ in range(self.n_hidden_layers - 1)])
+        self.output_layer = nn.Linear(self.neurons, self.output_dimension)
+        self.load_state_dict(weights)
+
 
 
 class PinnsLoss(torch.nn.Module):

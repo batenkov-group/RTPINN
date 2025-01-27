@@ -74,8 +74,7 @@ class RTPINN_inverse():
             self.handle_file_scenario()
 
     def handle_lrt_scenario(self):
-        disort_struct = lrp.DisortStruct()
-        disort_struct.init_from_output(os.path.join(scenarios_path, 'lrt', self.scenario_name, "uvspec_output.out"))
+        disort_struct = lrp.DisortStruct(os.path.join(scenarios_path, 'lrt', self.scenario_name, "uvspec_output.out"))
 
         self.lambertian = disort_struct.lambertian
         self.mu_0 = disort_struct.mu_0

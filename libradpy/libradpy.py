@@ -85,8 +85,9 @@ class DisortSolver(Solver):
     def __init__(self, n_streams, disort_intcor="phase", print_details=True):
         """
         :param n_streams: number of streams
-        :param n_mom: number of Legandre moments
+        :param disort_intcor: Disort internal correction type, phase is implemented in rtpinn
         :param print_details: Print detailed output this feature is usful to get the raw inputs of the DISORT solver
+
         """
         # Explicitly pass 'disort' as the solver_type to the parent class
         super().__init__(solver_type='disort')
@@ -104,7 +105,7 @@ class DisortSolver(Solver):
         return self.lines_l
 
 class MysticSolver(Solver):
-    def __init__(self, mc_photons, mc_vroom, mc_polarisation=None):
+    def __init__(self, mc_photons, mc_vroom, mc_polarisation=None, mc_escape=True):
         """
         :param mc_polarisation: Controls the initial Stokes vector for the Monte Carlo polarization solver.
         By default, unpolarized sunlight is used, represented by the Stokes vector (1, 0, 0, 0).
@@ -125,6 +126,8 @@ class MysticSolver(Solver):
         self.mc_polarisation = mc_polarisation
         self.mc_photons = mc_photons
         self.mc_vroom = mc_vroom
+        self.mc_escape = mc_escape
+
 
     def gen_lrt_input(self):
         self.lines_l = []
@@ -133,6 +136,8 @@ class MysticSolver(Solver):
             self.lines_l.append(f'mc_polarisation {self.mc_polarisation}')
         self.lines_l.append(f'mc_photons {self.mc_photons}')
         self.lines_l.append(f'mc_vroom {lrt_bool_to_str(self.mc_vroom)}')
+        self.lines_l.append(f'mc_escape {lrt_bool_to_str(self.mc_escape)}')
+
         return self.lines_l
 
 def lrt_bool_to_str(var):
@@ -343,7 +348,7 @@ class LibRadPy:
             lines = f.readlines()
             return (lines[0].split())[1]
 
-    def read_rad_mystic(self, mu, phi, zout='BOA'):
+    def read_rad_mystic(self, mu, phi, zout='BOA',scale = 1.0):
         # in libradtran this file name is unchangable
         radiance_mat = np.zeros((len(mu), len(phi)))
         # TODO Currently only supports TOA or BOA with the 49 layer case
@@ -353,9 +358,9 @@ class LibRadPy:
             examples_path = os.path.join(self.path, 'examples')
             file_name = f"mc{max([int(f.split('mc')[1].split('.')[0]) for f in os.listdir(examples_path) if f.startswith('mc') and f.endswith('.rad') and f.split('mc')[1].split('.')[0].isdigit()])}.rad"
         cols = ['x[m]', 'y[m]', 'vza', 'vaa', 'asa', 'rad_direct', 'rad_diffuse', 'rad_escape']
-        df = pd.read_table(os.path.join(self.path,'examples', file_name), sep='\s+', header=None, names=cols, index_col=False)
+        df = pd.read_table(os.path.join(self.path, 'examples', file_name), sep='\s+', header=None, names=cols, index_col=False)
         for ii in range(len(phi)):
-            radiance_mat[:, ii] = df['rad_diffuse'][df['vaa'] == phi[ii]].to_numpy()
+            radiance_mat[:, ii] = df['rad_escape'][df['vaa'] == phi[ii]].to_numpy() * scale
         return radiance_mat
 
 
@@ -510,10 +515,7 @@ class PhaseTable:
 
 
 class DisortStruct:
-    def __init__(self):
-        print("DisortStruct object created")
-
-    def init_from_output(self, output_file):
+    def __init__(self, output_file):
         phase_line = find_phrase_lines(output_file, 'Number of Phase Function Moments')
         profile_line = find_phrase_lines(output_file,
                                          '         Depth     Depth    Albedo    Fraction     Depth     Depth    Albedo   Factor')
@@ -545,17 +547,20 @@ class DisortStruct:
                 self.lambertian = False
             self.delta_M_Method = not re.search(r' Does not use delta-M method', file_content)
             if 'Uses TMS/IMS method' in file_content:
-                tms_start = find_phrase_lines(output_file, 'Phase Function Moments Table:')
-                if tms_start is not None:
-                    mu_phase_line = lines[tms_start + 1].split()
+                phase_start = find_phrase_lines(output_file, 'Phase Function Moments Table:')
+                if phase_start is not None:
+                    mu_phase_line = lines[phase_start + 1].split()
                     self.mu_phase = [float(mu) for mu in mu_phase_line[1:]]
 
                     self.phase_function = []
-                    for line in lines[tms_start + 2:]:
+                    for line in lines[phase_start + 2:]:
                         if line.strip() == '':
                             break
                         layer_data = [float(value) for value in line.split()[1:]]
                         self.phase_function.append(layer_data)
+                else:
+                    self.phase_function = None
+
             self.long_table = LongTable()
             self.phase_table = PhaseTable(self.n_mom)
             for ii in range(profile_line + 1, phase_line):
@@ -566,8 +571,7 @@ class DisortStruct:
 
 if __name__ == '__main__':
     output_file = '/data/cloudnn/debug/libRadtran-2.0.4/auto_io_files/uvspec_output.out'
-    ds = DisortStruct()
-    ds.init_from_output(output_file)
+    ds = DisortStruct(output_file)
     # mu = np.arange(-0.95, 1, 0.011)
     # # header_length = lrp.find_header_lines(output_file,mu)
     # lrp.read_output_intensity_full([0], [0], file_name='uvspec_output.out', return_header=False)

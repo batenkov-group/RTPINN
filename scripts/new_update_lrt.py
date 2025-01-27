@@ -14,15 +14,16 @@ scenarios_path = config['PATHS']['scenarios_path']
 figs_path = config['PATHS']['figs_path']
 default_installation = config.getboolean('VARS', 'default_installation')
 
-def update_lrt_scenario(alt_vec=None, update_scenario = True):
+def run_n_update_scenario(alt_vec=None, update_scenario = True):
     # Solver Parameters
     plot_1d = True
-
+    radiance_mat = None
+    scale = 1.0
     opac_type = 'continental_polluted'
 
     # Methods
 
-    methods = ['mystic']
+    methods = ['disort', 'mystic']
 
 
     # Components (Uncomment to change components)
@@ -45,7 +46,7 @@ def update_lrt_scenario(alt_vec=None, update_scenario = True):
                       wavelength=555, components=component_list, surface=surface)
 
     # Eval Pts
-    mu = np.arange(-0.95, 1, 0.11)
+    mu = np.arange(-0.95, 1, 0.011)
     mu_lowres = np.linspace(np.min(mu), np.max(mu), 50) # for mystic due to long runtime
     phi = [0]
 
@@ -79,11 +80,14 @@ def update_lrt_scenario(alt_vec=None, update_scenario = True):
     z_avg_rad = np.zeros([len(z_tau), len(mu)])
     z_rad = np.zeros([len(z_tau), len(mu), len(phi)])
     mystic_radiance = np.zeros(([len(z_tau), len(mu_lowres), len(phi)]))
-    # plot and generate the TOA and BOA radiance
+    # generate and plot the TOA and BOA radiance
     for x_ind, x in enumerate(alt_vec):
         for method in methods:
+
             if method == 'mystic':
-                solver = lrp.MysticSolver(mc_photons=10e5, mc_vroom=False)
+                #Load the scale value (since the .spc file is less stable then the .rad)
+                scale = np.load(os.path.join(scenarios_path, 'lrt', scenario_name, 'disort_output_file.npz'))['scale']
+                solver = lrp.MysticSolver(mc_photons=10e4, mc_vroom=False)
                 eval_pts = lrp.EvalPts(mu=mu_lowres, phi=[0], zout=x)
             elif method == 'disort':
                 solver = lrp.DisortSolver(n_streams=16, disort_intcor="phase")
@@ -99,7 +103,7 @@ def update_lrt_scenario(alt_vec=None, update_scenario = True):
             lrp_obj.run_uvspec(os.path.join(scenario_dir, 'UVSPEC_IO_AUTO.INP'),
                                scenario_name=scenario_name, scenarios_path=scenarios_path)
             if method == 'mystic':
-                mystic_radiance[x_ind, :, :] = lrp_obj.read_rad_mystic(mu_lowres, phi, zout=x)
+                mystic_radiance[x_ind, :, :] = lrp_obj.read_rad_mystic(mu_lowres, phi, zout=x,scale = scale)
                 if plot_1d:
                     for mm in range(mystic_radiance.shape[2]):
                         plt.plot(mu_lowres, mystic_radiance[x_ind, :, mm], '.', label=f'mystic_{phi[mm]}', )
@@ -115,8 +119,7 @@ def update_lrt_scenario(alt_vec=None, update_scenario = True):
 
                 z_rad[x_ind, :, :] = radiance_mat
                 if return_alt:
-                    disort_struct = lrp.DisortStruct()
-                    disort_struct.init_from_output(os.path.join(scenarios_path, 'lrt', scenario_name, "uvspec_output.out"))
+                    disort_struct = lrp.DisortStruct(os.path.join(scenarios_path, 'lrt', scenario_name, "uvspec_output.out"))
                     z_tau[x_ind] = disort_struct.user_tau
                 else:
                     z_tau = None
@@ -126,13 +129,15 @@ def update_lrt_scenario(alt_vec=None, update_scenario = True):
             plt.savefig(os.path.join(figs_path, "radiance_1d_plot.pdf"), bbox_inches='tight')
             plt.show()
 
-    if scenario_name != "":
+    if update_scenario:
         scenario_path = os.path.join(scenarios_path, 'lrt', scenario_name)
         np.savez(os.path.join(scenario_path, 'disort_output_file.npz'), radiance_mat=z_rad,
                  avg_radiance=z_avg_rad, mu=mu, phi=phi, header_params=header_params,
                  mu_0=np.cos(np.pi * sza / 180), phi_0=phi_0, mystic_radiance=mystic_radiance,
                  mu_lowres=mu_lowres, scale= scale, z_tau=z_tau, z_alt=alt_vec)
 
+    if radiance_mat is None:
+        radiance_mat = mystic_radiance
     return radiance_mat, z_avg_rad, mu, phi, z_tau
 
 
@@ -140,7 +145,7 @@ def update_lrt_scenario(alt_vec=None, update_scenario = True):
 if __name__ == "__main__":
     # alt_vec = np.arange(0.0, 20, 0.25) #altitude can be set in either km or Top/Bottom of atmosphere
     alt_vec = None
-    radiance_mat, avg_radiance, mu, phi, z_tau = update_lrt_scenario(alt_vec=alt_vec)
+    radiance_mat, avg_radiance, mu, phi, z_tau = run_n_update_scenario(alt_vec=alt_vec)
     if alt_vec is not None:
         # Create the figure and axis
         fig1, ax2 = plt.subplots()

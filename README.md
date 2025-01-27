@@ -19,7 +19,7 @@ figs_path = **path to save figures**
 scenarios_path = **path to scenarios directoryt**
 ```
 
-### 2. Instantiate and Train a Model
+### 2. Train a Model
 To start a new scenario, import and initialize the `RTPINN` class with training and model properties:
 
 ```python
@@ -53,26 +53,13 @@ model = rtpinn.solve_rte(model_pr)
 ```
 ### 2. Setup a scenario
 There are 2 ways to setup a scenario:
-* Through libradtran, when running a disort simulation using the **full_print_flag** the output can be used to setup a simulation of 
-    the same scenario using the RTPINN model.
+* Through libradtran, The RTPINN package includes a wrapper for the libradtran simulator (libradpy) through it you can build scenario in libradtran and then parse them as RTPINN scenarios.
+An example for a scenario setup is shown in the new_update_lrt.py file.
 * Through a custom file, where the user can define the parameters of the scenario in a file and use it to setup the simulation.
     by utilizing the custom file the user directly sets the RTE parameters, phase function coefficients and brdf parameters etc
     consider the default example for the file formats.
 
-### 3. Visualize Results
-The script contains functions like `plot_1D` and `plot_heatmap` to visualize the radiance values. You can use these to compare the predicted radiance from the PINN model against benchmarks from `libRadtran`.
 
-```python
-import matplotlib.pyplot as plt
-
-# Example usage to plot the top of the atmosphere radiance
-
-radiance_pinn_np = plot_1D(model, tau_list=[0], mu_vec=np.linspace(-1, 1, 50), phi=0, scale=1, label='PINN')
-plt.xlabel('Mu')
-plt.ylabel('Radiance')
-plt.legend()
-plt.show()
-```
 
 
 

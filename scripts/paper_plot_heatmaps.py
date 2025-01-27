@@ -15,7 +15,8 @@ import configparser
 # lrt_path = '/data/cloudnn/debug/libRadtran-2.0.4/' #For Server
 # martin_path = "/home/szucker/Dropbox/cloud-shared-files/matlabCode/Martin4MartinIntensity/"
 config = configparser.ConfigParser()
-config.read('init_file.ini')
+config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'init_file.ini')
+config.read(config_path)
 lrt_path = config['PATHS']['lrt_path']
 figs_path = config['PATHS']['figs_path']
 plt.rcParams.update({'font.size': 18})  # Set default font size for all elements
@@ -87,8 +88,7 @@ model_pr = {
 }
 save_results = True
 heat_map = False
-scan = False
-rtpinn = Ec.RTPINN(tr_pr, model_pr, delta_m=True)
+rtpinn = Ec.RTPINN(tr_pr, model_pr, initiallize_scenario = False)
 model = rtpinn.solve_rte(model_pr)
 print(model_pr["model_name"])
 
