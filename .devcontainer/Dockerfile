@@ -35,4 +35,4 @@ RUN wget -q "http://www.meteo.physik.uni-muenchen.de/~libradtran/lib/exe/fetch.p
 # Install uv
 RUN pip install uv
 
-WORKDIR /workspace
+WORKDIR /workspaces
