@@ -22,7 +22,7 @@ figs_path = config['PATHS']['figs_path']
 default_installation = config.getboolean('VARS', 'default_installation')
 
 
-## plot_function
+# plot_function
 
 def plot_scenario(tr_pr,model_pr, color,label,tau,ax = None):
     if ax == None:
@@ -35,9 +35,7 @@ def plot_scenario(tr_pr,model_pr, color,label,tau,ax = None):
     tau_star = solver.total_optical_depth[-1].detach().cpu().numpy()
     x_test = np.ones([len(lrt_results['mu']), 2]) * tau_star
     x_test[:, 1] = lrt_results['mu']
-    # now = datetime.now()  # current date and time
-    # date_time = now.strftime("%m%d%Y%H%M%S")
-    # date_time_pretty = now.strftime("%d/%m/%Y/%H:%M:%S")
+
 
     # Plot 1D fourier Modes
     # plot the top of the atmosphere
@@ -258,3 +256,121 @@ plt.savefig(os.path.join(figs_path, "Error_by_points.pdf"), bbox_inches='tight')
 print(os.path.join(figs_path, "Error_by_points.pdf"))
 plt.show()
 
+
+#plot the BRDF figures
+
+
+# The parameters for the training process including the atmospheric conditions, training points and loss
+plt.figure(figsize=(10, 6))
+scene_l = ['rpv', 'rossli', 'lambertian']
+label_l = ['RPV', 'Ross-Li', 'Lambertian']
+color_vec = ['red', 'salmon', 'blue', 'cyan', 'green', 'limegreen']
+# scene_l = ['rpv']
+# label_l = ['RPV']
+# color_vec = ['red','green']
+color_ind = -1
+for ind_s, scene in enumerate(scene_l):
+    for phi in [45, 135]:
+        color_ind += 1
+        if scene == 'rossli':
+            brdf_dict = {
+                'type': 'rossli',
+                'iso': 0.3,
+                'vol': 0.02,
+                'geo': 0.023,
+                'hotspot': False
+            }
+        elif scene == 'rpv':
+            brdf_dict = {
+                'type': 'rpv',
+                'rho0': 0.076,
+                'k': 0.648,
+                'theta': -0.290,
+                'sigma': 0,
+                't1': 0,
+                't2': 0,
+                'scale': 1
+            }
+        tr_pr = {
+            'sampling_method': "sobol",
+            'sampling_seed': 21,
+            'n_coll': 100000,
+            'n_b': 10000,
+            "epochs": 30000,
+            "epochs_adam": 0,
+            "steps_lbfgs": 1,
+            "nmom": 16,
+            "I_0": 1,
+            "scaling_factor": 1,
+            "N_S": 16,
+            "N_R": 16,
+            "scenario_type": "lrt",
+            "scenario_name": f"sza_45_{scene}_paper_{phi}",
+            "brdf_dict": brdf_dict,
+            "save_results": True,
+            "final_loss": 1,
+            "train_time": 0,
+        }
+        # The parameters for the network
+        model_pr = {
+            "model_name": f"sza_45_{scene}_paper_45",
+            "hidden_layers": 12,  # 1:8 22:12
+            "neurons": 50,  # 1:30 31:30
+            "residual_parameter": 1,  # Use this one Shai!
+            "activation": "tanh",
+            "n_mode": 16,
+            'load_model': f"sza_45_{scene}_paper_45",
+            'save_model': False,
+            'retrain': False,
+        }
+        solver = rtpinn.RTPINN(tr_pr, model_pr)
+        model = solver.solve_rte(model_pr)
+        scenario_path = os.path.join(os.path.join(rtpinn.scenarios_path, 'lrt'), tr_pr['scenario_name'])
+        lrt_results = np.load(os.path.join(scenario_path, 'disort_output_file.npz'))
+        tau_list = [0]
+        mu_vec = lrt_results['mu']
+        correction_total = lrt_results['correction_st'][0, :, 0, 0] - lrt_results['correction_st'][0, :, 0, 1] - \
+                           lrt_results['correction_nd'][0, :, 0]
+        correction_total = 0 * correction_total
+        x_test = np.ones([len(mu_vec), 3]) * 0
+        x_test[:, 1] = mu_vec
+        x_test[:, 2] = np.pi * phi / 180
+        radiance_pinn = model.fourier_sum(torch.Tensor(x_test).float().to(dev))
+        radiance_pinn_np = (radiance_pinn.detach().cpu().numpy() + correction_total) * lrt_results['scale']
+        radiance_pinn_total = radiance_pinn_np[mu_vec > 0]
+        radiance_lrt_total = lrt_results['radiance_mat'][0, mu_vec > 0, 0]
+        # plt.plot(lrt_results['mu'],radiance_pinn_np)
+        # plt.plot(lrt_results['mu'], lrt_results['radiance_mat'][0, :, 0], label='LRT')
+        # plt.show()
+        # Now load the LRT data for the other side (phi + 180)
+        tr_pr["scenario_name"] = f"sza_45_{scene}_paper_{phi + 180}"
+        solver = rtpinn.RTPINN(tr_pr, model_pr)
+        model = solver.solve_rte(model_pr)
+        scenario_path = os.path.join(os.path.join(rtpinn.scenarios_path, 'lrt'), tr_pr['scenario_name'])
+        lrt_results = np.load(os.path.join(scenario_path, 'disort_output_file.npz'))
+        tau_list = [0]
+        correction_total = lrt_results['correction_st'][0, :, 0, 0] - lrt_results['correction_st'][0, :, 0, 1] - \
+                           lrt_results['correction_nd'][0, :, 0]
+        correction_total = 0 * correction_total
+        x_test = np.ones([len(mu_vec), 3]) * 0
+        x_test[:, 1] = mu_vec
+        x_test[:, 2] = np.pi * (phi + 180) / 180
+        radiance_pinn = model.fourier_sum(torch.Tensor(x_test).float().to(dev))
+        radiance_pinn_np = (radiance_pinn.detach().cpu().numpy() + correction_total) * lrt_results['scale']
+        mu_pos = lrt_results['mu'][lrt_results['mu'] > 0]
+        theta = np.arccos(mu_pos) * 180.0 / np.pi
+        mu_total = np.sort(np.concatenate([-theta, theta]))
+        radiance_pinn_total = np.concatenate([radiance_pinn_np[mu_vec > 0], np.flip(radiance_pinn_total)])
+        radiance_lrt_total = np.concatenate(
+            [lrt_results['radiance_mat'][0, mu_vec > 0, 0], np.flip(radiance_lrt_total)])
+        # plt.title(scene + str(phi))
+        plt.plot(mu_total, radiance_pinn_total, color=color_vec[color_ind],
+                 label=label_l[ind_s] + ' ' + r'$\phi = $' + str(phi))
+        plt.plot(mu_total, radiance_lrt_total, '--', color=color_vec[color_ind])
+        plt.xlim([-90, 90])
+        plt.ylim([0, 220])
+        plt.xlabel('$\Theta$ [deg]')
+        plt.ylabel("I($\mu$) [$mW/(m^2 nm\cdot sr)$]")  # , va='center', rotation='vertical',weight = 'normal')
+plt.legend()
+plt.savefig('brdf.png')
+plt.show()
