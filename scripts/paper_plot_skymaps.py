@@ -7,19 +7,15 @@ from pinns import rtpinn as Ec
 import configparser
 import matplotlib
 
-os.environ['PATH'] += os.pathsep + '/bin/tex'
-os.environ['PATH'] += os.pathsep + '/bin/latex'
-os.environ['PATH'] += os.pathsep + '/bin/pdflatex'
-plt.rcParams['text.usetex'] = True
-plt.rcParams['text.latex.preamble'] = r'\usepackage{amsmath}'
 
-# load lrt_path and and scenarios_path from init_file.ini
 config = configparser.ConfigParser()
-config.read('init_file.ini')
+config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'init_file.ini')
+config.read(config_path)
 lrt_path = config['PATHS']['lrt_path']
 scenarios_path = config['PATHS']['scenarios_path']
 figs_path = config['PATHS']['figs_path']
-lut_path = '/data/cloudnn/LUT'
+default_installation = config.getboolean('VARS', 'default_installation')
+
 
 matplotlib.rcParams['text.usetex'] = True
 
@@ -36,15 +32,7 @@ def update_lrt_result(sat_view = True,direction = 'up', component = 'aerosol'):
     m2km = 10 ** (-3)
     wavelength = 555
 
-    lrp_obj = lrp.LibRadPy(lrt_path)
-    lrp_obj.setup()
-    os.chdir(lrt_path + '/auto_io_files')
-    sza = 45
-    phi_0 = 0
-    brdf_dict = {
-        'type': 'lambertian',
-        'albedo': 0.2,
-    }
+    lrp_obj = lrp.LibRadPy(lrt_path, outpath=scenarios_path, default_installation=default_installation)
     if component == 'aerosol':
         component_list = [lrp.OPACAerosol(opac_species='continental_polluted')]
     elif component == 'cloud':
@@ -63,33 +51,24 @@ def update_lrt_result(sat_view = True,direction = 'up', component = 'aerosol'):
     z_rad = np.zeros([len(z_tau), len(mu),len(phi)])
     z_avg_rad = np.zeros([len(z_tau), len(mu)])
     solver = lrp.DisortSolver(n_streams=16)
+    scenario_name = "default" # no reason to save this scenario
+    if scenario_name:
+        scenario_dir = os.path.join(scenarios_path, 'lrt', scenario_name)
+        if not os.path.exists(scenario_dir):
+            os.makedirs(scenario_dir, exist_ok=True)
+        else:
+            print("Scenario exists!!!")
     for x_i, x in enumerate(z_tau):
         eval_pts = lrp.EvalPts(mu=mu, phi=phi, zout=x)
         lines = lrp_obj.gen_lrt_input(scene, solver, eval_pts, time_stamp=False)
-        lrp_obj.write_input_file(lines, 'UVSPEC_IO_AUTO.INP', quiet=True)
-        lrp_obj.run_uvspec(os.path.join(lrp_obj.auto_io_path, 'UVSPEC_IO_AUTO.INP'))
-        radiance_mat, avg_radiance, header_params, scale_var, correction_st_mat, correction_nd_mat = \
-            lrp_obj.read_output_intensity_full(mu, phi ,file_name=os.path.join(lrt_path, "auto_io_files", "uvspec_output.out"), return_header=True,scale=True, corrections=True)
+        lrp_obj.write_input_file(path=scenario_dir, lines=lines, file_name = 'UVSPEC_IO_AUTO.INP', quiet=True)
+        lrp_obj.run_uvspec(os.path.join(scenario_dir, 'UVSPEC_IO_AUTO.INP'),
+                           scenario_name=scenario_name, scenarios_path=scenarios_path)
+        radiance_mat, avg_radiance, header_params, scale = lrp_obj.read_output_intensity_new(mu,
+                                                                                             os.path.join(scenario_dir,
+                                                                                                          "uvspec_output.out"))
         z_rad[x_i, :, :] = radiance_mat
         z_avg_rad[x_i, :] = avg_radiance
-        correction_st[x_i, :, :, :] = correction_st_mat
-        correction_nd[x_i, :] = correction_nd_mat
-        if sat_view:
-            title_str = f'Altitude = {x} km, sza = {sza} deg, phi_0 = {phi_0} deg, direction = {direction}'
-            # lrp.polar_plotter(phi, mu, radiance_mat, direction=direction, title_str=title_str)
-            # plt.savefig(f"{figs_path}/disort2d_{x}_{sza}_{phi_0}_{direction}.pdf", bbox_inches='tight')
-            # np.savez(f"/home/szucker/PycharmProjects/TAUaerosolRetrival/Scripts/urban_2D_{x}.npz", radiance_mat=radiance_mat, sza=sza,phi_0 =phi_0 , phi=phi, umu=mu, header_params=header_params)
-
-        else:
-            # avg_radiance_boundary[index, :] = avg_radiance.reshape(-1)
-            fig1, ax2 = plt.subplots(constrained_layout=True)
-            ax2.contourf(phi.reshape(-1), mu.reshape(-1), radiance_mat)
-            # ax2.scatter(np.cos(np.pi*sza/180), phi_0)
-            ax2.scatter(phi_0, np.cos(np.pi*sza/180 - np.pi))
-            # plt.plot(umu, avg_radiance)
-            plt.title(f'Result for altitude = {x} sza = {sza} phi_0 = {phi_0}')
-            plt.ylabel('umu [cos(theta)]')
-            plt.xlabel('Phi_0 [deg]')
     return z_rad, z_avg_rad, mu, phi, scale_var, correction_st, correction_nd
         # radiance_mat_boundary[index, :] = radiance_mat.reshape(-1)
     #
@@ -158,14 +137,13 @@ def main():
             print(
                 f"Mean Relative Error:{np.mean(error_rad[error_rad != np.nan])} for tau = {tau_list[0]} and direction = {direction}")
 
-            #         plt.show()
             tau_list = [1.0]
             correction_total = correction_st[1, :, :, 0] - correction_st[1, :, :, 1] - correction_nd[1, :, :]
             pinn_rad = Ec.plot_skymap(model, tau_list, mu, phi * (np.pi / 180), scale=scale_var,
                                       correction=correction_total, direction='up')
             plt.savefig(f"{figs_path}/PINN_tau{tau_list[0]}_{model_pr['model_name']}_SkyMap_nocorrection_up.png",
                         bbox_inches='tight')
-            #         plt.show()
+
             error_rad = 100 * np.abs((disort_rad - pinn_rad) / pinn_rad)[1, :, :]
             lrp.polar_plotter(phi, mu, error_rad, direction='up', vmax=20, units='percent')
             plt.savefig(f"{figs_path}/Error_tau{tau_list[0]}_{model_pr['model_name']}_SkyMap_nocorrection_up.png",
@@ -174,8 +152,6 @@ def main():
             print(
                 f"Mean Relative Error:{np.mean(error_rad[error_rad != np.nan])} for tau = {tau_list[0]} and direction = {direction}")
 
-        #         plt.show()
-        # plt.savefig(f"./Figs/{model_pr['model_name']}_SkyMap_down.png", bbox_inches='tight')
         else:
             tau_list = [0.0]
             correction_total = correction_st[0, :, :, 0] - correction_st[0, :, :, 1] - correction_nd[0, :, :]
@@ -209,9 +185,6 @@ def main():
             error_rad = error_rad.reshape(-1)
             print(
                 f"Mean Relative Error:{np.mean(error_rad[error_rad != np.nan])} for tau = {tau_list[0]} and direction = {direction}")
-
-# plt.show()
-        # plt.savefig(f"./Figs/{model_pr['model_name']}_SkyMap_down.png", bbox_inches='tight')
 
 if __name__ == "__main__":
     print("Starting...")

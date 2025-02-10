@@ -238,11 +238,9 @@ for scenario_i, scenario in enumerate(scenario_names):
         radiance_pinn = model.fourier_sum(torch.Tensor(x_test).float().to(dev))
         radiance_pinn_np = (radiance_pinn.detach().cpu().numpy() + correction_total) * lrt_results['scale']
         # print(np.abs(lrt_results['radiance_mat'][0,lrt_results['mu'] > 0,0] - radiance_top_pinn[lrt_results['mu'] > 0]))
-        print(labels[scenario_i], solver.total_optical_depth[-1])
         error_vec[points_i] = np.mean(np.abs((lrt_results['radiance_mat'][0, lrt_results['mu'] > mu_cutoff, 0] -
                                               radiance_pinn_np[lrt_results['mu'] > mu_cutoff]) /
                                              lrt_results['radiance_mat'][0, lrt_results['mu'] > mu_cutoff]))
-        print(np.sum(lrt_results['mu'] > mu_cutoff))
 
     plt.plot(n_points_vec, error_vec, '-o', label=labels[scenario_i])
 plt.xlabel(r"Number of Collocation Points")
@@ -329,14 +327,11 @@ for ind_s, scene in enumerate(scene_l):
         lrt_results = np.load(os.path.join(scenario_path, 'disort_output_file.npz'))
         tau_list = [0]
         mu_vec = lrt_results['mu']
-        correction_total = lrt_results['correction_st'][0, :, 0, 0] - lrt_results['correction_st'][0, :, 0, 1] - \
-                           lrt_results['correction_nd'][0, :, 0]
-        correction_total = 0 * correction_total
         x_test = np.ones([len(mu_vec), 3]) * 0
         x_test[:, 1] = mu_vec
         x_test[:, 2] = np.pi * phi / 180
         radiance_pinn = model.fourier_sum(torch.Tensor(x_test).float().to(dev))
-        radiance_pinn_np = (radiance_pinn.detach().cpu().numpy() + correction_total) * lrt_results['scale']
+        radiance_pinn_np = (radiance_pinn.detach().cpu().numpy()) * lrt_results['scale']
         radiance_pinn_total = radiance_pinn_np[mu_vec > 0]
         radiance_lrt_total = lrt_results['radiance_mat'][0, mu_vec > 0, 0]
         # plt.plot(lrt_results['mu'],radiance_pinn_np)
@@ -349,14 +344,11 @@ for ind_s, scene in enumerate(scene_l):
         scenario_path = os.path.join(os.path.join(rtpinn.scenarios_path, 'lrt'), tr_pr['scenario_name'])
         lrt_results = np.load(os.path.join(scenario_path, 'disort_output_file.npz'))
         tau_list = [0]
-        correction_total = lrt_results['correction_st'][0, :, 0, 0] - lrt_results['correction_st'][0, :, 0, 1] - \
-                           lrt_results['correction_nd'][0, :, 0]
-        correction_total = 0 * correction_total
         x_test = np.ones([len(mu_vec), 3]) * 0
         x_test[:, 1] = mu_vec
         x_test[:, 2] = np.pi * (phi + 180) / 180
         radiance_pinn = model.fourier_sum(torch.Tensor(x_test).float().to(dev))
-        radiance_pinn_np = (radiance_pinn.detach().cpu().numpy() + correction_total) * lrt_results['scale']
+        radiance_pinn_np = (radiance_pinn.detach().cpu().numpy()) * lrt_results['scale']
         mu_pos = lrt_results['mu'][lrt_results['mu'] > 0]
         theta = np.arccos(mu_pos) * 180.0 / np.pi
         mu_total = np.sort(np.concatenate([-theta, theta]))
