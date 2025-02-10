@@ -7,8 +7,10 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 SHELL ["/bin/zsh", "-c"]
-
 WORKDIR /tmp
+
+# Copy the patch file from the build context
+COPY cdisort.patch /tmp/cdisort.patch
 
 # Install libRadtran
 RUN wget -q --user=libRadtran --password=libRadtran "http://www.libradtran.org/download/libRadtran-2.0.6.tar.gz" && \
@@ -22,10 +24,11 @@ RUN wget -q --user=libRadtran --password=libRadtran "http://www.libradtran.org/d
     ./configure && \
     cd libsrc_c && make clean && cd .. && \
     cd src && make clean && cd .. && \
+    patch libsrc_c/cdisort.c /tmp/cdisort.patch && \
     make && \
     make install && \
     cd .. && \
-    rm -rf libRadtran-2.0.6* cflags ldflags
+    rm -rf libRadtran-2.0.6* cflags ldflags /tmp/cdisort.patch
 
 RUN wget -q "http://www.meteo.physik.uni-muenchen.de/~libradtran/lib/exe/fetch.php?media=download:optprop_v2.1.tar.gz" -O optprop_v2.1.tar.gz && \
     tar xzf optprop_v2.1.tar.gz && \
