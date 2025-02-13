@@ -2,14 +2,15 @@ import numpy as np
 import pandas as pd
 import os
 import scene
-from mcrt import mcrt as mcrt
+import mcrt
 import matplotlib.pyplot as plt
+
 if __name__ == '__main__':
 
     choice = "Mie"
     delta_m = True
-
-    od_profiles = pd.read_csv(os.path.join("../Data", "profile_files", "feng_profile.csv"))
+    print(os.getcwd())
+    od_profiles = pd.read_csv(os.path.join("Data", "profile_files", "feng_profile.csv"))
     od_profiles.aer_2 = 0.2 * od_profiles.aer_1
     od_profiles.aer_1 = 0.8 * od_profiles.aer_1
 
@@ -49,8 +50,13 @@ if __name__ == '__main__':
     dual_mu_view = (180.0 / np.pi) * np.concatenate([-np.arccos(mu_e_all_2).reshape(-1, 1), np.flip(np.arccos(mu_e_all_2).reshape(-1, 1))], axis=0)
     I_view = np.concatenate([I_sm_view[1, :], np.flip(I_sm_view[0, :])], axis=0)
     Q_view = np.concatenate([Q_sm_view[1, :], np.flip(Q_sm_view[0, :])], axis=0)
-    plt.plot(dual_mu_view, I_view, label = "I (normalized scale)")
-    plt.plot(dual_mu_view, -10*Q_view, label = "Q (normalized scale)")
+    plt.plot(dual_mu_view, I_view, label = "I (normalized scale)",color='r')
+    plt.plot(dual_mu_view, -10*Q_view, label = "Q (normalized scale)",color='b')
+    #Load the matlab results and plot them
+    matlab_I = pd.read_csv(os.path.join("Data", "general", "Feng_example", "example_I.csv"), header=None).to_numpy()
+    plt.plot(matlab_I[:, 0], matlab_I[:, 1], label = "I (martin4martin)", linestyle='--', color='r', linewidth=3)
+    matlab_Q = pd.read_csv(os.path.join("Data", "general", "Feng_example", "example_Q.csv"), header=None).to_numpy()
+    plt.plot(matlab_Q[:, 0], matlab_Q[:, 1], label = "Q (martin4martin)", linestyle='--', color='b', linewidth=3)
     plt.xlabel("Scan angle [deg]")
     plt.ylabel("Normalized stokes values")
     plt.legend()

@@ -876,8 +876,6 @@ class MCRT:
             # source_s = np.array([])
             # q_pi = np.array([])
             # r_mle = np.array([])
-            print("CHECK")
-        print("CHECK2")
         # First for loop
         for m in range(self.n_mode + 1):
             if m == 0:
