@@ -12,12 +12,11 @@ import pprint
 import copy
 import matplotlib.pyplot as plt
 import scipy as sc
-import torch.nn as nn
 import sobol_seq
 import time
 import configparser
 from utils.torchmath import *
-from torch.func import jacfwd, jacrev, vmap
+from torch.func import jacrev, vmap
 
 pi = np.pi
 extrema_values = None
@@ -155,253 +154,146 @@ class RTPINN():
                 self.coef_mat[ii, jj] = (self.coef_mat_org[ii, jj] - self.dm_separated_fraction[ii]) / (
                             1 - self.dm_separated_fraction[ii])
 
-    def find_idx(self, val, values_vec):
-        diff = torch.abs(values_vec.unsqueeze(0) - val.reshape(-1).unsqueeze(1))
-        ind_vec = torch.argmin(diff, dim=1)
-        return ind_vec
-
-    # def intensity_correction(self, tau_vec, mu_vec, phi_vec, lyrcut=False, n_cut = -1):
-    #
-    #     if not isinstance(tau_vec, torch.Tensor):
-    #         tau_vec = torch.tensor(tau_vec).to(dev)
-    #
-    #     # Ensure mu_vec is a tensor
-    #     if not isinstance(mu_vec, torch.Tensor):
-    #         mu_vec = torch.tensor(mu_vec).to(dev)
-    #
-    #     # Ensure phi_vec is a tensor
-    #     if not isinstance(phi_vec, torch.Tensor):
-    #         phi_vec = torch.tensor(phi_vec).to(dev)
-    #     if n_cut == -1:
-    #         n_cut = len(self.tau_org)
-    #     # Start of the function
-    #     dtheta = 10.0
-    #     for iu in range(len(mu_vec)):
-    #         theta0, thetap = 0.0, 0.0
-    #         if mu_vec[iu] < 0.0:
-    #             theta0 = torch.rad2deg(torch.arccos(-self.tensor_mu_0))
-    #             thetap = torch.rad2deg(torch.arccos(mu_vec[iu]))
-    #
-    #         # Loop over azimuth angles
-    #         for jp in range(len(phi_vec)):
-    #             # Calculate cosine of scattering angle
-    #             ctheta = (-self.tensor_mu_0 * mu_vec[iu] +
-    #                       torch.sqrt((1.0 - self.tensor_mu_0 ** 2) * (1.0 - mu_vec[iu] ** 2)) * torch.cos(phi_vec[jp]))
-    #
-    #             # Initialize phase functions
-    #             for lc in range(1, n_cut + 1):
-    #                 phasa[lc - 1] = 1.0
-    #                 phasm[lc - 1] = 1.0
-    #
-    #             # Initialize Legendre polynomial recurrence
-    #             plm1, plm2 = 1.0, 0.0
-    #             for k in range(1,  + 1):
-    #                 # Calculate Legendre polynomial P-sub-l by upward recurrence
-    #                 pl = ((2 * k - 1) * ctheta * plm1 - (k - 1) * plm2) / k
-    #                 plm2, plm1 = plm1, pl
-    #
-    #                 # Calculate actual phase function
-    #                 for lc in range(1, ncut + 1):
-    #                     phasa[lc - 1] += (2 * k + 1) * pl * PMOM(k, lc)
-    #
-    #                 # Calculate delta-M transformed phase function
-    #                 if k <= ds.nstr - 1:
-    #                     for lc in range(1, ncut + 1):
-    #                         phasm[lc - 1] += (2 * k + 1) * pl * (PMOM(k, lc) - FLYR(lc)) / (1.0 - FLYR(lc))
-    #
-    #             # Apply TMS method
-    #             for lc in range(1, ncut + 1):
-    #                 phast[lc - 1] = phasa[lc - 1] / (1.0 - FLYR(lc) * SSALB(lc))
-    #
-    #             # Loop over optical depths
-    #             for lu in range(1, ds.ntau + 1):
-    #                 if not lyrcut or LAYRU(lu) < ncut:
-    #                     ussndm = c_single_scat(dither, LAYRU(lu), ncut, phast, ds.ssalb, taucpr, UMU(iu),
-    #                                            ds.bc.umu0, UTAU(lu), ds.bc.fbeam)
-    #                     ussp = c_single_scat(dither, LAYRU(lu), ncut, phasm, oprim, taucpr, UMU(iu), ds.bc.umu0,
-    #                                          UTAU(lu), ds.bc.fbeam)
-    #                     UU(iu, lu, jp, ussndm - ussp)
-    #                     fptr_st.write(f"{UMU(iu):.6f} {PHIRAD(jp):.6f} {ussndm:.6e} {ussp:.6e}\n")
-    #
-    #             # Check if IMS method is needed
-    #             if UMU(iu) < 0.0 and abs(theta0 - thetap) <= dtheta:
-    #                 ltau = 1
-    #                 if UTAU(1) <= dither:
-    #                     ltau = 2
-    #                 for lu in range(ltau, ds.ntau + 1):
-    #                     if not lyrcut or LAYRU(lu) < ncut:
-    #                         duims = c_secondary_scat(ds, iu, lu, ctheta, flyr, LAYRU(lu), tauc)
-    #                         UU(iu, lu, jp, -duims)
-    #                         fptr_nd.write(f"{UMU(iu):.6f} {PHIRAD(jp):.6f} {duims:.6e}\n")
     def new_scattering_correction(self, tau_vec, mu_vec, phi_vec):
-        # Ensure tau_vec is a tensor
-        if not isinstance(tau_vec, torch.Tensor):
-            tau_vec = torch.tensor(tau_vec).to(dev)
-
-        # Ensure mu_vec is a tensor
-        if not isinstance(mu_vec, torch.Tensor):
-            mu_vec = torch.tensor(mu_vec).to(dev)
-
-        if not isinstance(phi_vec, torch.Tensor):
-            phi_vec = torch.tensor(phi_vec).to(dev)
+        tau_vec = tau_vec if isinstance(tau_vec, torch.Tensor) else torch.tensor(tau_vec, device=dev)
+        mu_vec = mu_vec if isinstance(mu_vec, torch.Tensor) else torch.tensor(mu_vec, device=dev)
+        phi_vec = phi_vec if isinstance(phi_vec, torch.Tensor) else torch.tensor(phi_vec, device=dev)
+        accurate_phase = self.accurate_phase if self.accurate_phase.dim() > 1 else self.accurate_phase.unsqueeze(0)
 
         tau_unormalized = tau_vec * self.tau_org[-1]
-        tau_ind = self.find_idx(tau_unormalized, self.tau_org)
-        iu = jp = k = lc = ltau = lu = 0
-        ctheta = dtheta = duims = 0.0
-        pl = plm1 = plm2 = theta0 = thetap = ussndm = ussp = 0.0
-        nf = 100
-        tiny = 1e-4
-        it = 0
-        lyr = 0
-        n_phase = 475 # the value considered by lrt
-        cos_theta_vec = torch.linspace(-1, 1, n_phase)
-        phase_r = torch.zeros((len(self.total_optical_depth), n_phase), device=dev)
-        phase_func_val = torch.zeros((len(self.total_optical_depth), n_phase), device=dev)
-        for lyr in range(len(self.total_optical_depth)):
-            phase_r[lyr, :] = self.phase_func_cos(self.N_S, self.coef_mat_org[lyr, :] - self.dm_separated_fraction[lyr], self.mu_phase)
-            # phase_func_val[lyr, :] = self.phase_func_cos(100, self.coef_mat_org[lyr, :], self.mu_phase)
-        mu_eq = [0.0] * nf * len(tau_vec)
-        norm_phas = [0.0] * len(tau_vec)
-        neg_phas = [0] * (nf * len(tau_vec))
-
-        phas2 = [0.0] * (len(self.total_optical_depth) * len(tau_vec))
-
-        f_phas2 = 0.0
-        fbar = 0.0
-        need_secondary_scattering = 0
-
-        # dtheta = 10.0 given
+        tau_ind = torch.argmin(torch.abs(self.tau_org.unsqueeze(0) - tau_unormalized.reshape(-1, 1)), dim=1)  # shape: (n_tau,)
         dtheta = 10.0
+        coef_mat = self.coef_mat_org[:, :len(self.mu_phase)]
+        phase_r = self.phase_func_cos(self.N_S, coef_mat - self.dm_separated_fraction[:, None], self.mu_phase)
+        theta0 = torch.rad2deg(torch.acos(-self.tensor_mu_0))
+        thetap = torch.rad2deg(torch.acos(mu_vec))
+        # need_secondary_scattering = ((mu_vec < 0) & (torch.abs(theta0 - thetap) <= dtheta)).any()
+        need_secondary_scattering = False # TODO Change when a new version of scattering correction is implemented
 
-        # Check whether secondary scattering is performed at all
-        for iu in range(len(mu_vec)):
-            if mu_vec[iu] < 0.0:
-                theta0 = torch.rad2deg(torch.arccos(-self.tensor_mu_0))
-                thetap = torch.rad2deg(torch.arccos(mu_vec[iu]))
-                if abs(theta0 - thetap) <= dtheta:
-                    need_secondary_scattering = True
-                    break
+        if need_secondary_scattering:
+            layer_effects = (accurate_phase[:-1, :len(self.mu_phase)] - phase_r[:-1, :]) \
+                            * self.ssa_org[:-1, None] * self.d_tau[:-1, None]
+            phase_2 = layer_effects.sum(dim=0).unsqueeze(1).expand(-1, len(tau_vec))
 
-        if need_secondary_scattering == True:
-            # Calculate delta-scaled phase function phas_r
-            phase_2 = torch.zeros((n_phase, len(tau_vec)), device=dev)
-            for it in range(n_phase):
-                for lu in range(len(tau_vec)):
-                    phase_2[it, lu] = 0.0
-                    for lyr in range(len(self.total_optical_depth) - 1):
-                        phase_2[it, lu] += (self.accurate_phase[lyr, it] - phase_r[lyr, it]) * self.ssa_org[lyr] * self.d_tau[lyr]
-                    lyr = tau_ind[lu]
-                    phase_2[it, lu] += (self.accurate_phase[lyr, it] - phase_r[lyr, it]) * self.ssa_org[lyr] * (tau_vec[lu] * self.tau_org[-1] - self.tau_org[lyr - 1])
+            phase_term = (
+                        accurate_phase[tau_ind, :len(self.mu_phase)] - phase_r[tau_ind, :]).T
+            tau_diff = (tau_vec * self.tau_org[-1] - self.tau_org[tau_ind - 1]).to(dev)
+            ssa_term = self.ssa_org[tau_ind].to(dev)  # shape: (n_tau,)
+            phase_2 = phase_2 + phase_term * ssa_term.unsqueeze(0) * tau_diff.unsqueeze(0)
 
-        #     # normalize by 1/(ssa*beta*f)
-            for lu in range(len(tau_vec)):
-                lyr = tau_ind[lu]
-                fbar = self.dm_separated_fraction[lyr] * self.ssa_org[lyr] * (tau_vec[lu] * self.tau_org[-1] - self.tau_org[lyr - 1])
-                for lyr in range(tau_ind[lu]):
-                    fbar += self.ssa_org[lyr] * self.d_tau[lyr] * self.dm_separated_fraction[lyr]
-                # S.Z if condition ignored here
-                fbar = 1.0 / fbar
-                for it in range(n_phase):
-                    phase_2[it, lu] = phase_2[it, lu] * fbar
-                f_phas2 = 0.0
-                for it in range(1, n_phase):
-                    f_phas2 += (self.mu_phase[it] - self.mu_phase[it - 1]) * 0.5 * (phase_2[it, lu] + phase_2[it - 1, lu])
-                if f_phas2 != 0.0:
-                    norm = 2.0 / f_phas2
-                    for it in range(n_phase):
-                        phase_2[it, lu] = phase_2[it, lu] * norm
-                mu_eq, neg_phas, norm_phas = self.prep_double_scat_integr(n_phase, len(tau_vec), 100, self.mu_phase, phase_2)
-        # # Start loop over zenith angles
-        theta0 = 0.0
-        thetap = 0.0
-        phas_a = torch.zeros_like(self.tau_org)
-        full_correction_mat = torch.zeros((len(mu_vec), len(phi_vec), len(tau_vec)), device=dev)
-        for iu in range(len(mu_vec)):
-            if mu_vec[iu] < 0.0:
-                theta0 = torch.rad2deg(torch.arccos(-self.tensor_mu_0))
-                thetap = torch.rad2deg(torch.arccos(mu_vec[iu]))
-            for jp in range(len(phi_vec)):
-                ctheta = (-self.tensor_mu_0 * mu_vec[iu] +
-                          torch.sqrt((1.0 - self.tensor_mu_0 ** 2) * (1.0 - mu_vec[iu] ** 2)) * torch.cos(phi_vec[jp]))
-                ctheta_ind = torch.searchsorted(self.mu_phase, ctheta) - 1
-                # possible sol
-                #todo check if the conditions are correct
-                if torch.abs(ctheta - 1.0) < 1e-6:
-                    ctheta_ind = len(self.mu_phase) - 2
-                elif torch.abs(ctheta + 1.0) < 1e-6:
-                    ctheta_ind = 0
-                for lc in range(len(self.tau_org)):
-                    eps = torch.tensor(1.5230870231697224e-08, device=dev)
-                    delta_mu_phase = torch.max(self.mu_phase[ctheta_ind + 1] - self.mu_phase[ctheta_ind],eps)
-                    phas_a[lc] = self.accurate_phase[lc, ctheta_ind] + (ctheta - self.mu_phase[ctheta_ind]) / (delta_mu_phase) * (self.accurate_phase[lc, ctheta_ind + 1] - self.accurate_phase[lc, ctheta_ind])
-                phas_m_coef = torch.ones(self.N_S, device=dev)
-                phas_m = torch.ones_like(self.tau_org)
-                for lc in range(len(self.tau_org)):
-                    for k in range(1, self.N_S):
-                        phas_m_coef[k] = (self.coef_mat_org[lc, k] - self.dm_separated_fraction[lc]) / (
-                                    1.0 - self.dm_separated_fraction[lc])
-                    phas_m[lc] = self.phase_func_cos(self.N_S, phas_m_coef, ctheta)
-                phase_st = phas_a / (1.0 - self.ssa * self.dm_separated_fraction)
-                for lu in range(len(tau_vec)): #TODO again conditions I don't consider
-                    single_scat_rad_dm = self.single_scat(tau_ind[lu], phase_st, mu_vec[iu], self.total_optical_depth[tau_ind[lu]], dm=True)
-                    single_scat_rad_p = self.single_scat(tau_ind[lu], phas_m, mu_vec[iu], self.total_optical_depth[tau_ind[lu]], dm=False)
-                    full_correction_mat[iu, jp, lu] = single_scat_rad_dm - single_scat_rad_p
-                if mu_vec[iu] < 0.0 and torch.abs(theta0 - thetap) <= dtheta:
-                    # TODO assumes monotonicity of tau_vec
-                    ltau = 0
-                    if tau_vec[0] <= tiny:
-                        ltau = 1
-                    for lu in range(ltau, len(tau_vec)):
-                        second_scat_rad = 0.0
-                        # second_scat_rad = self.new_secondary_scat(iu, lu, tau_vec,tau_ind, ctheta, ctheta_ind, phase_2, mu_eq, neg_phas, norm_phas)
-                        full_correction_mat[iu, jp, lu] -= second_scat_rad
+            fbar = self.dm_separated_fraction[tau_ind] * self.ssa_org[tau_ind] * tau_diff
+            fbar += torch.sum(self.ssa_org[:, None] * self.d_tau[:, None] * self.dm_separated_fraction[:, None], dim=0)
+            fbar = torch.where(fbar != 0, 1.0 / fbar, torch.tensor(0.0, device=dev))
+            phase_2 = phase_2 * fbar.unsqueeze(0)
+
+            f_phas2 = torch.trapz(phase_2, self.mu_phase, dim=0)
+            norm = torch.where(f_phas2 != 0, 2.0 / f_phas2, torch.tensor(1.0, device=dev))
+            phase_2 = phase_2 * norm.unsqueeze(0)
+        M = len(mu_vec)
+        P = len(phi_vec)
+        n_tau = len(tau_vec)
+        full_correction_mat = torch.empty((M, P, n_tau), device=dev)
+        ctheta = (-self.tensor_mu_0 * mu_vec[:, None] +
+                  torch.sqrt((1 - self.tensor_mu_0 ** 2) * (1 - mu_vec[:, None] ** 2)) * torch.cos(phi_vec[None, :]))
+
+
+        ctheta_ind = torch.searchsorted(self.mu_phase, ctheta) - 1
+        ctheta_ind = torch.clamp(ctheta_ind, 0, len(self.mu_phase) - 2)
+        mu_low = self.mu_phase[ctheta_ind]
+        mu_high = self.mu_phase[ctheta_ind + 1]
+        delta = torch.clamp(mu_high - mu_low, min=1e-8)
+
+
+        L = accurate_phase.shape[0]
+        phase_a_list = []
+        for l in range(L):
+            phase_low = accurate_phase[l, :len(self.mu_phase)][ctheta_ind]
+            phase_high = accurate_phase[l, :len(self.mu_phase)][ctheta_ind + 1]
+            phase_a_l = phase_low + (ctheta - mu_low) / delta * (phase_high - phase_low)
+            phase_a_list.append(phase_a_l)
+        phase_a = torch.stack(phase_a_list, dim=0)
+
+
+        phas_m_coef = (self.coef_mat_org[:, :len(self.mu_phase)] - self.dm_separated_fraction[:, None]) \
+                      / (1.0 - self.dm_separated_fraction[:, None])
+        phas_m_list = []
+        for l in range(L):
+            phas_m_l = self.phase_func_cos(self.N_S, phas_m_coef[l, :], ctheta)
+            phas_m_list.append(phas_m_l)
+        phas_m = torch.stack(phas_m_list, dim=0)
+
+
+        phase_st = phase_a / (
+                    1.0 - self.ssa.unsqueeze(1).unsqueeze(2) * self.dm_separated_fraction.unsqueeze(1).unsqueeze(2))
+
+
+
+
+        for lu in range(n_tau):
+            u_lyr = tau_ind[lu].item()
+            u_tau_val = self.total_optical_depth[u_lyr]
+
+            phast_dm = phase_st[u_lyr, :, :]
+            phast_p = phas_m[u_lyr, :, :]
+            for i in range(M):
+                for j in range(P):
+                    cs_dm = self.single_scat(u_lyr, phast_dm[i, j], mu_vec[i].item(), u_tau_val, dm=True)
+                    cs_p = self.single_scat(u_lyr, phast_p[i, j], mu_vec[i].item(), u_tau_val, dm=False)
+                    full_correction_mat[i, j, lu] = cs_dm - cs_p
+
+
+            if need_secondary_scattering:
+                theta0 = torch.rad2deg(torch.acos(-self.tensor_mu_0))
+                thetap = torch.rad2deg(torch.acos(mu_vec))
+                mask = (mu_vec < 0) & (torch.abs(theta0 - thetap) <= dtheta)
+                if mask.any():
+                    second_corr = self.new_secondary_scat(None, lu, tau_vec, tau_ind, ctheta, ctheta_ind, phase_2, None,
+                                                          None, None)
+                    full_correction_mat[mask, :, lu] -= second_corr
+
         return full_correction_mat
 
-    def single_scat(self, u_lyr, phast, mu, u_tau, dm = True):
-        ans = 0.0
+    def single_scat(self, u_lyr, phast, mu, u_tau, dm=True):
         exp0 = torch.exp(-u_tau / self.tensor_mu_0)
-        tiny = 1e-4 # TODO change maybe to a better syntax
+        tiny = 1e-4
         if dm:
             ssa_vec = self.ssa_org
-            tau_vec = torch.cat((torch.tensor([0], device=dev), self.tau_org))
+            tau_vec_local = torch.cat((torch.tensor([0], device=dev), self.tau_org))
         else:
             ssa_vec = self.ssa
-            tau_vec = torch.cat((torch.tensor([0], device=dev), self.total_optical_depth))
+            tau_vec_local = torch.cat((torch.tensor([0], device=dev), self.total_optical_depth))
         if torch.abs(mu + self.tensor_mu_0) <= tiny:
-            # Calculate downward intensity when mu=mu_0, eq. STWL (65e)
+            ans = 0.0
             for lyr in range(u_lyr + 1):
                 if dm:
-                    ans += ssa_vec[lyr] * phast[lyr] * (tau_vec[lyr + 1] - tau_vec[lyr])
+                    ans += ssa_vec[lyr] * phast * (tau_vec_local[lyr + 1] - tau_vec_local[lyr])
                 else:
-                    ans += ssa_vec[lyr - 1] * phast[lyr - 1] * (
-                                tau_vec[lyr] - tau_vec[lyr - 1])
-            ans = 1.0 / (4.0 * torch.pi * self.tensor_mu_0) * exp0 * (ans + ssa_vec[u_lyr] * phast[u_lyr] * (u_tau - tau_vec[u_lyr - 1]))
+                    ans += ssa_vec[lyr - 1] * phast * (tau_vec_local[lyr] - tau_vec_local[lyr - 1])
+            ans = (1.0 / (4.0 * torch.pi * self.tensor_mu_0)) * exp0 * (
+                        ans + ssa_vec[u_lyr] * phast * (u_tau - tau_vec_local[u_lyr - 1]))
             return ans
-
         if mu > 0.0:
-            # Upward intensity, eq. STWL (65b)
+            ans = 0.0
             for lyr in range(u_lyr, len(self.tau_org)):
-                exp1 = torch.exp(-((self.total_optical_depth[lyr] - u_tau) / mu + self.total_optical_depth[lyr] / self.tensor_mu_0))
-                ans += ssa_vec[lyr] * phast[lyr] * (exp0 - exp1)
+                exp1 = torch.exp(
+                    -((self.total_optical_depth[lyr] - u_tau) / mu + self.total_optical_depth[lyr] / self.tensor_mu_0))
+                ans += ssa_vec[lyr] * phast * (exp0 - exp1)
                 exp0 = exp1
         else:
-            # Downward intensity, eq. STWL (65d)
+            ans = 0.0
             for lyr in range(u_lyr, 0, -1):
-                exp1 = torch.exp(-((self.total_optical_depth[lyr - 1] - u_tau) / mu + self.total_optical_depth[lyr - 1] / self.tensor_mu_0))
-                ans += ssa_vec[lyr] * phast[lyr] * (exp0 - exp1)
+                exp1 = torch.exp(-((self.total_optical_depth[lyr - 1] - u_tau) / mu + self.total_optical_depth[
+                    lyr - 1] / self.tensor_mu_0))
+                ans += ssa_vec[lyr] * phast * (exp0 - exp1)
                 exp0 = exp1
 
-        ans *= 1.0 / (4.0 * torch.pi * (1.0 + mu / self.tensor_mu_0))
+        ans = ans * (1.0 / (4.0 * torch.pi * (1.0 + mu / self.tensor_mu_0)))
+        return ans
 
-        return ans.item()
-
-    def new_secondary_scat(self, iu, lu, tau_vec,tau_ind, ctheta, ctheta_ind, phase_2, mu_eq, neg_phas, norm_phas):
+    def new_secondary_scat(self, iu, lu, tau_vec, tau_ind, ctheta, ctheta_ind, phase_2, mu_eq, neg_phas, norm_phas):
         tiny = 1e-4
         n_phase = len(self.mu_phase)
-
-        # Calculate vertically averaged value of single scattering albedo and separated fraction f
-        dtau = tau_vec[lu]*self.tau_org[-1] - self.tau_org[tau_ind[lu] - 1]
+        dtau = tau_vec[lu] * self.tau_org[-1] - self.tau_org[tau_ind[lu] - 1]
         wbar = self.ssa_org[tau_ind[lu]] * dtau
         fbar = self.dm_separated_fraction[tau_ind[lu]] * wbar
         stau = dtau
@@ -409,52 +301,36 @@ class RTPINN():
             wbar += self.d_tau[lyr] * self.ssa_org[lyr]
             fbar += self.d_tau[lyr] * self.ssa_org[lyr] * self.dm_separated_fraction[lyr]
             stau += self.d_tau[lyr]
-
         if wbar <= tiny or fbar <= tiny or stau <= tiny or self.I_0 <= tiny:
             return 0.0
-
         fbar /= wbar
         wbar /= stau
-        eps = torch.tensor(1e-8, device = dev)
-        # Calculate pspike1
+        eps = torch.tensor(1e-8, device=dev)
         pspike1 = phase_2[ctheta_ind, lu] + (ctheta - self.mu_phase[ctheta_ind]) / (
-                    torch.max(self.mu_phase[ctheta_ind + 1] - self.mu_phase[ctheta_ind],eps)) * (
-                              phase_2[ctheta_ind + 1, lu] - phase_2[ctheta_ind, lu])
-
-        # Calculate pspike2
+            torch.max(self.mu_phase[ctheta_ind + 1] - self.mu_phase[ctheta_ind], eps)) * (
+                          phase_2[ctheta_ind + 1, lu] - phase_2[ctheta_ind, lu])
         pspike2 = self.calc_phase_squared(n_phase, lu, ctheta, len(mu_eq), self.mu_phase, phase_2, mu_eq, neg_phas,
                                           norm_phas)
-
         pspike = 2.0 * pspike1 - pspike2
-
         umu0p = self.tensor_mu_0 / (1.0 - fbar * wbar)
-
-        # Calculate IMS correction term
-        ims_correction = self.I_0 / (4.0 * torch.pi) * (fbar * wbar) ** 2 / (
-                    1.0 - fbar * wbar) * pspike * xi_func(-self.tensor_mu_0, umu0p, self.tau_org[lu])
-
-        return ims_correction.item()
+        ims_correction = self.I_0 / (4.0 * torch.pi) * (fbar * wbar) ** 2 / (1.0 - fbar * wbar) * pspike * xi_func(
+            -self.tensor_mu_0, umu0p, self.tau_org[lu])
+        return ims_correction
 
     def calc_phase_squared(self, n_phase, lu, ctheta, nf, mu_phase, phas2, mu_eq, neg_phas, norm_phas):
         if not isinstance(mu_eq, torch.Tensor):
-            mu_eq = torch.tensor(mu_eq).to(dev)
+            mu_eq = torch.tensor(mu_eq, device=dev)
         if not isinstance(neg_phas, torch.Tensor):
-            neg_phas = torch.tensor(neg_phas).to(dev)
+            neg_phas = torch.tensor(neg_phas, device=dev)
         if not isinstance(norm_phas, torch.Tensor):
-            norm_phas = torch.tensor(norm_phas).to(dev)
-
-        j = k = it = 0
-        pspike2 = stheta = smueq = phint = 0.0
-        mumin = mumax = D = C = Dp = Cp = 0.0
-        cutting = False
-
+            norm_phas = torch.tensor(norm_phas, device=dev)
+        pspike2 = 0.0
         stheta = torch.sqrt(1.0 - ctheta * ctheta)
-
         for j in range(nf):
-            if torch.abs(ctheta - 1.0) < 1e-5  or torch.abs(mu_eq[j, lu] - 1.0) < 1e-5:
+            if torch.abs(ctheta - 1.0) < 1e-5 or torch.abs(mu_eq[j, lu] - 1.0) < 1e-5:
                 it = torch.searchsorted(mu_phase, mu_eq[j, lu] * ctheta).item() - 1
-                phint = torch.pi * (phas2[it, lu] + (mu_eq[j, lu] * ctheta - mu_phase[it]) / (
-                            mu_phase[it + 1] - mu_phase[it]) * (phas2[it + 1, lu] - phas2[it, lu])) #There is a very small delta #TODO
+                phint = torch.pi * (phas2[it, lu] + (mu_eq[j, lu] * ctheta - mu_phase[it]) /
+                                    (mu_phase[it + 1] - mu_phase[it]) * (phas2[it + 1, lu] - phas2[it, lu]))
                 if ctheta == 1.0:
                     phint /= 2.0
             else:
@@ -462,44 +338,33 @@ class RTPINN():
                 smueq = torch.sqrt(1.0 - mu_eq[j, lu] * mu_eq[j, lu])
                 mumin = ctheta * mu_eq[j, lu] - stheta * smueq
                 mumax = ctheta * mu_eq[j, lu] + stheta * smueq
-
+                cutting = False
                 if mu_eq[j, lu] < mumax:
                     mumax = mu_eq[j, lu]
                     cutting = True
-                else:
-                    cutting = False
-
-                if mumin < mumax: #TODO I've added -1
+                if mumin < mumax:
                     imin = torch.searchsorted(mu_phase, mumin).item() - 1
                     imax = torch.searchsorted(mu_phase, mumax).item() - 1
-
-                    k = imin
-                    D = (phas2[k + 1, lu] - phas2[k, lu]) / (mu_phase[k + 1] - mu_phase[k])
-                    C = phas2[k, lu] - mu_phase[k] * D
-
+                    D = (phas2[imin + 1, lu] - phas2[imin, lu]) / (mu_phase[imin + 1] - mu_phase[imin])
+                    C = phas2[imin, lu] - mu_phase[imin] * D
                     phint += (D * ctheta * mu_eq[j, lu] + C) * torch.pi / 2.0
-
                     for k in range(imin + 1, imax + 1):
                         Dp = (phas2[k + 1, lu] - phas2[k, lu]) / (mu_phase[k + 1] - mu_phase[k])
                         Cp = phas2[k, lu] - mu_phase[k] * Dp
-
-                        phint += (Dp - D) * torch.sqrt(
-                            1.0 - ctheta * ctheta - mu_eq[j, lu] * mu_eq[j, lu] + 2.0 * ctheta * mu_eq[j, lu] *
-                            mu_phase[k] - mu_phase[k] * mu_phase[k]) + \
-                                 ((Dp - D) * ctheta * mu_eq[j, lu] + Cp - C) * torch.asin(
+                        phint += (Dp - D) * torch.sqrt(1.0 - ctheta * ctheta - mu_eq[j, lu] * mu_eq[j, lu] +
+                                                       2.0 * ctheta * mu_eq[j, lu] * mu_phase[k] - mu_phase[k] *
+                                                       mu_phase[k]) \
+                                 + ((Dp - D) * ctheta * mu_eq[j, lu] + Cp - C) * torch.asin(
                             (ctheta * mu_eq[j, lu] - mu_phase[k]) / (smueq * stheta))
-
                         D = Dp
                         C = Cp
-
                     if cutting:
                         phint += -D * torch.sqrt(
-                            1.0 - ctheta * ctheta + 2.0 * mu_eq[j, lu] * mu_eq[j, lu] * (ctheta - 1.0)) - \
-                                 (D * ctheta * mu_eq[j, lu] + C) * torch.asin(
+                            1.0 - ctheta * ctheta + 2.0 * mu_eq[j, lu] * mu_eq[j, lu] * (ctheta - 1.0)) \
+                                 - (D * ctheta * mu_eq[j, lu] + C) * torch.asin(
                             (ctheta - 1.0) * mu_eq[j, lu] / (smueq * stheta))
                     else:
                         phint += (D * ctheta * mu_eq[j, lu] + C) * torch.pi / 2.0
-
             if j == 0 or j == nf - 1:
                 if neg_phas[j, lu]:
                     pspike2 -= 0.5 * phint
@@ -510,70 +375,42 @@ class RTPINN():
                     pspike2 -= phint
                 else:
                     pspike2 += phint
+        return pspike2 * norm_phas
 
-        pspike2 = pspike2*norm_phas
-
-        return pspike2
     def prep_double_scat_integr(self, nphase, ntau, nf, mu_phase, phas2):
-        # Outputs to be calculated
         mu_eq = np.zeros((nf, ntau))
         neg_phas = np.zeros((nf, ntau), dtype=bool)
         norm_phas = np.zeros(ntau)
-
         f_phas2_abs = np.zeros(nphase)
-
         for lu in range(ntau):
-            # Calculate integral of |phas2| (f_phas2_abs)
             f_phas2_abs[0] = 0.0
             for it in range(1, nphase):
-                f_phas2_abs[it] = (
-                        f_phas2_abs[it - 1]
-                        + (mu_phase[it] - mu_phase[it - 1]) * 0.5 * (
-                                abs(phas2[it, lu]) + abs(phas2[it - 1, lu])
-                        )
-                )
-
-            # Define mu grid equidistant in f_phas2_abs
+                f_phas2_abs[it] = (f_phas2_abs[it - 1] +
+                                   (mu_phase[it] - mu_phase[it - 1]) * 0.5 *
+                                   (abs(phas2[it, lu]) + abs(phas2[it - 1, lu])))
             f_phas2 = 0.0
             df = f_phas2_abs[-1] / (nf - 1)
             mu_eq[0, lu] = -1.0
-
-            # Identify regions of negative phas2
             neg_phas[0, lu] = phas2[0, lu] <= 0.0
-
             it = 0
             for i in range(1, nf - 1):
                 f_phas2 += df
-
                 while it + 1 < nphase and f_phas2_abs[it + 1] < f_phas2:
                     it += 1
-
-                mu_eq[i, lu] = (
-                        mu_phase[it]
-                        + (f_phas2 - f_phas2_abs[it])
-                        / (f_phas2_abs[it + 1] - f_phas2_abs[it])
-                        * (mu_phase[it + 1] - mu_phase[it])
-                )
-
+                mu_eq[i, lu] = mu_phase[it] + (f_phas2 - f_phas2_abs[it]) / (f_phas2_abs[it + 1] - f_phas2_abs[it]) * (
+                            mu_phase[it + 1] - mu_phase[it])
                 if phas2[it, lu] > 0.0 and phas2[it + 1, lu] > 0.0:
                     neg_phas[i, lu] = False
                 elif phas2[it, lu] < 0.0 and phas2[it + 1, lu] < 0.0:
                     neg_phas[i, lu] = True
                 else:
-                    interpolated_phas2 = (
-                            phas2[it, lu]
-                            + (f_phas2 - f_phas2_abs[it])
-                            / (f_phas2_abs[it + 1] - f_phas2_abs[it])
-                            * (phas2[it + 1, lu] - phas2[it, lu])
-                    )
+                    interpolated_phas2 = (phas2[it, lu] +
+                                          (f_phas2 - f_phas2_abs[it]) / (f_phas2_abs[it + 1] - f_phas2_abs[it]) *
+                                          (phas2[it + 1, lu] - phas2[it, lu]))
                     neg_phas[i, lu] = interpolated_phas2 <= 0.0
-
             mu_eq[-1, lu] = 1.0
             neg_phas[-1, lu] = phas2[-1, lu] <= 0.0
-
-            # Normalize phase function
             norm_phas[lu] = f_phas2_abs[-1] / ((nf - 1) * np.pi)
-
         return mu_eq, neg_phas, norm_phas
     def read_csv_file(self, filename):
         return pd.read_csv(os.path.join(scenarios_path, 'file', self.scenario_name, filename))
@@ -582,14 +419,14 @@ class RTPINN():
         return torch.tensor(self.read_csv_file(filename).values).to(dev)
 
     def phase_func_cos(self, M, coeff_vec, theta):
-        # Ensure theta is a PyTorch tensor on the correct device
-        theta = theta.to(coeff_vec.device)  # Match device of coeff_vec
-        leg_sum = torch.zeros_like(theta)  # Initialize with same shape and device as theta
+
+        theta = theta.to(coeff_vec.device)
+        leg_sum = torch.zeros_like(theta)
 
         for l in range(M):
-            # Compute Legendre polynomial values
+
             leg_poly = torch.tensor(legendre(l)(theta.cpu().numpy())).to(dev)
-            # Add weighted Legendre polynomial to the sum
+
             leg_sum += (2 * l + 1) * coeff_vec[l] * leg_poly
 
         return leg_sum
@@ -612,7 +449,7 @@ class RTPINN():
         return ssa_x
 
 
-    #   This function computes the kernal for both the D function and for X_0 calculation, (with a matching flag)
+
     def kernel(self, mu, mu_prime, legendre_coef, kernel_option='D'):
         k = torch.tensor(()).new_full(size=(mu.shape[0], mu_prime.shape[0], self.n_mode), fill_value=0.0)
         for mm in range(self.n_mode):
@@ -632,11 +469,9 @@ class RTPINN():
 
     def fourier_coeff(self, cos_theta, p_func, n_quad, ll):
         mu_prime, w = np.polynomial.legendre.leggauss(int(n_quad))
-        # p_interp = np.interp(mu_prime, np.flip(cos_theta.reshape(-1)), np.flip(p_func.reshape(-1)))
         cubic_interp = interp1d(np.flip(cos_theta.reshape(-1)), np.flip(p_func.reshape(-1)), kind='cubic',
                                 fill_value="extrapolate")
         p_interp = cubic_interp(mu_prime)
-        # Find p_interp using spline interpolation
         leg_val = legendre(ll)(mu_prime)
         return 0.5 * np.sum(p_interp * leg_val * w)
 
@@ -660,6 +495,7 @@ class RTPINN():
 
     def generator_samples(self, type_point_param, samples, dim, random_seed, extrema):
         """
+        #todo explain this function
         :param type_point_param:
         the pattern of points in the space either "uniform" "sobol" "grid"
         :param samples: num of samples
@@ -742,23 +578,7 @@ class RTPINN():
                 w = torch.tensor(w).reshape(-1, 1)
                 w = w * 0.5 * torch.abs((extrema_f - extrema_0))
             return inputs, w
-        elif type_point_param == "disort": #TODO if this works change the implementation
-            if dim == 2:
-                layer_samples = int(samples/(len(self.total_optical_depth) - 1))
-                x = np.array([])
-                mu = np.array([])
-                for ii in range(1, len(self.total_optical_depth)):
-                    tau_vec = self.total_optical_depth.detach().cpu().numpy()
-                    x = np.concatenate([x, tau_vec[ii - 1] + np.linspace(0, 1, layer_samples) * (tau_vec[ii] - tau_vec[ii - 1])])
-                    mu = np.concatenate([mu, np.linspace(-1, 1, layer_samples)])
-                x = x/tau_vec[-1]
-                inputs = torch.from_numpy(np.stack([x, mu], axis=1))
-            elif dim == 1:
-                inputs, w = np.polynomial.legendre.leggauss(int(samples))
-                inputs = torch.tensor(inputs).reshape(-1, 1)
-                inputs = 0.5 * (inputs + 1) * (extrema_f - extrema_0) + extrema_0
-                w = torch.tensor(w).reshape(-1, 1)
-                w = w * 0.5 * torch.abs((extrema_f - extrema_0))
+
 
         else:
             raise ValueError()
@@ -878,14 +698,6 @@ class RTPINN():
             dev)
         self.rho_m_0 = torch.tensor(()).new_full(size=(mu_g.shape[0], self.n_mode), fill_value=0.0).to(
             dev)
-        # if self.lambertian == False:
-        #     for index_p, mu_p_val in enumerate(mu_prime):
-        #         brdf = rpv_reflection(params_dict, mu_p_val, MU_G, torch.cos(PHI_PRIME))
-        #         for mm in range(self.n_mode):
-        #             self.rho_m[index_p, :, mm] = self.reflection_coeff(brdf, mm, PHI_PRIME, W)
-        #
-        #     for mm in range(self.n_mode):
-        #         self.rho_m_0[:, mm] = self.reflection_coeff(brdf, mm, PHI_PRIME, W)
         if self.lambertian:
             self.rho_m = torch.zeros(mu_prime.shape[0], mu_g.shape[0], self.n_mode, device=dev)
             self.rho_m_0 = torch.zeros(mu_g.shape[0], self.n_mode, device=dev)
@@ -919,7 +731,6 @@ class RTPINN():
     def apply_BC_N(self, model):
         model_outputs = model(self.reflection_inputs)
         I_tau_star = torch.zeros_like(self.u_boundary_multi_mod)
-        # u_b_ground_all = [self.compute_ground_boundary(model_outputs, mm) for mm in range(self.n_mode)]
         u_b_ground = self.compute_ground(model_outputs)
         I_tau_star[self.where_x_equal_1, :] = u_b_ground
         return I_tau_star
@@ -929,7 +740,6 @@ class RTPINN():
             model_outputs.unsqueeze(1).expand(self.N_R, self.rho_m.shape[1], self.n_mode) * self.rho_m *
             self.mu_prime.unsqueeze(2).expand(self.N_R, self.rho_m.shape[1], self.n_mode) * self.w.unsqueeze(2).expand(
                 self.N_R, self.rho_m.shape[1], self.n_mode), 0)
-        # const = 1 if mm == 0 else 0.5
         const = 0.5 * torch.ones_like(k, device=dev)
         const[:, 0] = 1.0
         # Compute boundary condition
@@ -949,7 +759,7 @@ class RTPINN():
             k = torch.sum(model(torch.cat([tau_quad, -mu_prime], 1)) * mu_prime * w)
             return k * pi
         else:
-            print('Not implemented yet')  # TODO: implement the upwelling flux
+            # TODO: implement the upwelling flux
             mu_prime, w = np.polynomial.legendre.leggauss(int(self.N_S / 2))
             mu_prime = torch.tensor(mu_prime).reshape(int(self.N_S / 2), -1).to(dev)
             w = torch.tensor(w).reshape(int(self.N_S / 2), -1).to(dev)
@@ -957,47 +767,6 @@ class RTPINN():
             tau_quad = torch.tensor(()).new_full(size=(mu_prime.shape[0], 1), fill_value=tau).to(dev)
             k = torch.sum(model(torch.cat([tau_quad, mu_prime], 1)) * mu_prime * w)
             return k * pi
-
-    # def single_scattering_correction(self, tau_vec, mu_vec, phi_vec):
-    #     ind_mu_pos = mu_vec > 0
-    #     ind_mu_neg = mu_vec < 0
-    #     ind_mu_0 = mu_vec == self.mu_0
-    #     const_pos = self.I_0 / (4 * np.pi * (1 + mu_vec[ind_mu_pos] / self.mu_0))
-    #     const_neg = self.I_0 / (4 * np.pi * (1 - mu_vec[ind_mu_neg] / self.mu_0))
-    #     const_mu_0 =  self.I_0 / (4 * np.pi * self.mu_0)
-    #     correction_mat = torch.zeros((len(tau_vec, len(mu_vec))))
-    #     for tau_i, tau in enumerate(tau_vec):
-    #         correction_pos = torch.zeros_like(mu_vec[ind_mu_pos])
-    #         correction_neg = torch.zeros_like(mu_vec[ind_mu_pos])
-    #         if ind_mu_0.any():
-    #             correction_0 = torch.zeros_like(mu_vec[ind_mu_0])
-    #         lwr_ind = torch.where(tau_vec < tau)[0]
-    #         tau_ind = lwr_ind[-1]
-    #         tau_grid = tau_vec[tau_ind]
-    #         for i in range(tau_ind, len(self.ssa)):
-    #             # TODO if phase func was vectorized according to tau this will be much faster
-    #             phase_val_pos = self.phase_func(self.coef_mat_org.shape[1], self.coef_mat_org[i, :], mu_vec[ind_mu_pos], -self.mu_0,
-    #                                         phi_vec[ind_mu_pos],
-    #                                         self.phi_0)
-    #             correction_pos += const_pos * self.ssa[i] * phase_val_pos * torch.exp(-(self.tau_vec[i - 1] - tau_grid) / mu_vec[ind_mu_pos] -tau_vec[i - 1] / self.mu_0) - torch.exp(self.tau_vec[i] - tau_grid) / mu_vec[ind_mu_pos] - tau_vec[i] / self.mu_0 )
-    #         for i in range(tau_ind):
-    #             phase_val_neg = self.phase_func(self.coef_mat_org.shape[1], self.coef_mat_org[i, :], -mu_vec[ind_mu_neg], -self.mu_0,
-    #                                         phi_vec[ind_mu_neg],
-    #                                         self.phi_0)
-    #             correction_neg += const_neg * self.ssa[i] * phase_val_neg * torch.exp(-(tau_grid - self.tau_vec[i]) / mu_vec[ind_mu_neg] -
-    #                                                               tau_vec[i] / self.mu_0) - exp(
-    #                 tau_grid - self.tau_vec[i - 1]) / mu_vec[ind_mu_pos] -
-    #             tau_vec[i - 1] / self.mu_0 )
-    #             if ind_mu_0.any():
-    #                 phase_val_0 = self.phase_func(self.coef_mat_org.shape[1], self.coef_mat_org[i, :],
-    #                                                 -mu_vec[ind_mu_0], -self.mu_0,
-    #                                                 phi_vec[ind_mu_0],
-    #                                                 self.phi_0)
-    #                 correction_0 += self.ssa[i] * phase_val_0 * torch.exp(-tau_grid / self.mu_0) * (self.tau_vec[i] - self.tau_vec[i - 1])
-    #         correction_mat[tau_i, ind_mu_pos] = correction_pos
-    #         correction_mat[tau_i, ind_mu_neg] = correction_neg
-    #         if ind_mu_0.any():
-    #             correction_mat[tau_i, ind_mu_0] = correction_0
 
     def fit(self, model, optimizer_ADAM, optimizer_LBFGS, epoch_ADAM, x_coll_train, x_b_train, u_b_train, w_coll=None,
             w_b=None):
@@ -1018,14 +787,8 @@ class RTPINN():
         self.boundary_settings(x_b_train, u_b_train)
         self.inputs = self.prepare_inputs(x_coll_train, mu_prime)
         x_coll_train.requires_grad = True
-
-        # Loss function
         loss_obj = PinnsLoss(self.apply_BC_N, self.compute_R_int, self.x_boundary_inf.float())
-
-        # Training loop
         train_loss_total, epochs_vec = [], []
-        optimizer = optimizer_ADAM
-
         for epoch in range(self.n_epohcs):
             optimizer = optimizer_ADAM if epoch < epoch_ADAM else optimizer_LBFGS
             closure = self.create_closure(optimizer, model, x_coll_train, omega_x_f_train, kern_coll, kern_x_0,
@@ -1080,12 +843,12 @@ class RTPINN():
 
         if model_pr['load_model'] == "no model" or model_pr['retrain']:
             # Prepare training data
-            x_b_train, u_b_train, x_coll_train, w_b, w_coll = self.prepare_training_data()
+            x_b_train, u_b_train, x_coll_train = self.prepare_training_data()
 
             # Train model
             start = time.time()
             print("Fitting Model")
-            final_error_train = self.train_model(model, model_pr, x_coll_train, x_b_train, u_b_train, w_coll, w_b)
+            final_error_train = self.train_model(model, model_pr, x_coll_train, x_b_train, u_b_train)
             self.display_training_time(start)
             model = model.eval()
             final_error_train = float(((10 ** final_error_train) ** 0.5))
@@ -1176,26 +939,6 @@ class RTPINN():
         pd.DataFrame(model_pr, index=[0]).to_csv(model_pr_path)
         pd.DataFrame(self.tr_pr, index=[0]).to_csv(tr_pr_path)
 
-
-def compute_flux(model, tau, n_quad, direction, mu_0=1.0):
-    if direction == 'down':
-        mu_prime, w = np.polynomial.legendre.leggauss(int(n_quad / 2))
-        mu_prime = torch.tensor(mu_prime).reshape(int(n_quad / 2), -1).to(dev)
-        w = torch.tensor(w).reshape(int(n_quad / 2), -1).to(dev)
-        mu_prime = 0.5 * mu_prime + 0.5  # S.Z 2401 moving the quadrature around [0,1]
-        tau_quad = torch.tensor(()).new_full(size=(mu_prime.shape[0], 1), fill_value=tau).to(dev)
-        k = torch.sum(model(torch.cat([tau_quad, -mu_prime], 1)) * mu_prime * w).detach().cpu().numpy()
-        return k * np.pi + mu_0 * np.exp(-tau / mu_0)
-    else:
-        print('Not implemented yet')  # TODO: implement the upwelling flux
-        mu_prime, w = np.polynomial.legendre.leggauss(int(n_quad / 2))
-        mu_prime = torch.tensor(mu_prime).reshape(int(n_quad / 2), -1).to(dev)
-        w = torch.tensor(w).reshape(int(n_quad / 2), -1).to(dev)
-        mu_prime = 0.5 * mu_prime + 0.5  # S.Z 2401 moving the quadrature around [0,1]
-        tau_quad = torch.tensor(()).new_full(size=(mu_prime.shape[0], 1), fill_value=tau).to(dev)
-        k = torch.sum(model(torch.cat([tau_quad, -mu_prime], 1)) * mu_prime * w).detach().cpu().numpy()
-        return k * np.pi + mu_0 * np.exp(-tau / mu_0)
-
 def plot_1D(model, tau_list, mu_vec, phi, correction=0, scale=1, color=None, label=None, fourier=True, ax=None):
     if np.isnan(correction).any():
         correction = 0
@@ -1227,62 +970,6 @@ def plot_1D(model, tau_list, mu_vec, phi, correction=0, scale=1, color=None, lab
                     ax.plot(x_test[:, 1], radiance_pinn_np, label=label, color=color)
         return radiance_pinn_np
 
-
-def plot_1D_scan(model, tau_list, mu_view, save_results=False, model_pr={}, tr_pr={}, solver_result=[], phi=0,
-                 date_str="", n_modes=0):
-    # os.chdir("/home/shai/Software/TAUaerosolRetrival/Figs")
-    figs_path = "/data/cloudnn/ShaiZucker/Dropbox/Quick Files/Figs"
-    for tau in tau_list:
-        # One side
-        umu_vec = np.concatenate((-np.flip(mu_view), mu_view))
-        pos_umu = umu_vec[umu_vec >= 0]
-        x_test = np.ones([len(pos_umu), 3]) * tau
-        x_test[:, 1] = pos_umu
-        x_test[:, 2] = phi
-        radiance_pinn = model.fourier_sum(torch.Tensor(x_test).to(dev))
-        fig = plt.figure()
-        radiance_pinn_np = radiance_pinn.detach().cpu().numpy()
-        # Second side
-        pos_umu = umu_vec[umu_vec >= 0]
-        x_test = np.ones([len(pos_umu), 3]) * tau
-        x_test[:, 1] = pos_umu
-        x_test[:, 2] = np.mod(phi + np.pi, 2 * np.pi)
-        radiance_pinn = model.fourier_sum(torch.Tensor(x_test).to(dev))
-        radiance_pinn_np = np.concatenate((radiance_pinn.detach().cpu().numpy(), np.flip(radiance_pinn_np)), axis=0)
-        plt.plot(np.concatenate((-np.arccos(mu_view) * 180 / np.pi, np.flip(np.arccos(mu_view)) * 180 / np.pi)),
-                 solver_result, label='Markov Method')
-        plt.plot(np.concatenate((-np.arccos(mu_view) * 180 / np.pi, np.flip(np.arccos(mu_view)) * 180 / np.pi)),
-                 radiance_pinn_np, label="PINN")
-        if save_results:
-            np.savez(f"{figs_path}/{model_pr['model_name']}_MarkovPlot.npz", solver_result=solver_result,
-                     radiance_pinn_np=radiance_pinn_np
-                     , mu_view=mu_view, tau=tau, phi=phi, model_pr=model_pr, tr_pr=tr_pr)
-        plt.xlim([-89, 89])
-        plt.ylim([0, 0.20])
-
-        plt.xlabel('$\Theta$')
-
-        plt.ylabel('$I$')
-        plt.title(f"Normalized Intensity Comparison tau = {tau}")
-        plt.legend()
-        plt.savefig(figs_path + f"/{model_pr['model_name']}_MarkovPlot.png", bbox_inches='tight')
-        plt.show()
-
-        # plot the relative error
-        plt.figure
-        relative_error = np.abs((solver_result - radiance_pinn_np) / solver_result) * 100.0
-        plt.plot(np.concatenate((-np.arccos(mu_view) * 180 / np.pi, np.flip(np.arccos(mu_view)) * 180 / np.pi)),
-                 relative_error)
-        plt.xlabel('$\Theta$')
-        plt.ylabel('Relative Error [%]')
-        plt.title(f"Relative Error Comparison tau = {tau}")
-        plt.ylim([0, 5])
-        plt.xlim([-89, 89])
-        plt.show()
-
-        return radiance_pinn_np
-
-
 def plot_skymap(model, tau_list, umu_vec, phi_vec, scale, correction=None, direction="up"):
     radiance_mat = np.zeros((len(tau_list), len(umu_vec), len(phi_vec)))
     for tau_i, tau in enumerate(tau_list):
@@ -1303,7 +990,6 @@ def plot_skymap(model, tau_list, umu_vec, phi_vec, scale, correction=None, direc
 
 # plot the heat map of the radiance function given by the mod
 def plot_heatmap(model, alt_vec, mu, tau_vec, scale, correction, tau_star):
-    #TODO Think of a better solution for tau_star
     """
     :param model: the trained model
     :param alt_vec: a vector of the  altitudes for plotting in [km]
@@ -1313,8 +999,6 @@ def plot_heatmap(model, alt_vec, mu, tau_vec, scale, correction, tau_star):
     :param date_str: string for file names should contain the run initial time
     :return: nothing only plots the results on a heat map
     """
-    # os.chdir("/home/shai/Software/TAUaerosolRetrival/Figs")
-    # contourf_data = np.load('contourfdata.npz')
     avg_radiance = np.zeros([len(alt_vec), len(mu)])
     for ii in range(len(alt_vec)):
         x_test = np.ones([len(mu), 2]) * tau_vec[ii]/tau_star
@@ -1330,7 +1014,6 @@ def plot_heatmap(model, alt_vec, mu, tau_vec, scale, correction, tau_star):
     return avg_radiance
 
 
-# torch.backends.cuda.matmul.allow_tf32 = False
 
 
 
@@ -1371,7 +1054,7 @@ class Pinns(nn.Module):
         weights = torch.load(weight_file)
         # self.network_properties['model_name'] = params_file[:-6]
         self.lambda_residual = params_dict['lambda_residual']
-        self.n_hidden_layers = params_dict['n_hidden_layers'] #TODO here it's with n and in other places it's without
+        self.n_hidden_layers = params_dict['n_hidden_layers']
         self.neurons = params_dict['neurons']
         self.act_string = params_dict['activation']
         self.input_dimension = params_dict['input_dimension']
@@ -1424,75 +1107,6 @@ class PinnsLoss(torch.nn.Module):
         return loss_log
 
 
-
-def shadow_s(sigma, two_sigma2, mu):
-    t1 = np.sqrt(2 * (1 - mu ** 2) / np.pi)
-    t2 = sigma / mu * np.exp(-mu ** 2 / two_sigma2 / (1 - mu ** 2))
-    t3 = sc.special.erfc(mu / sigma / np.sqrt(2 * (1 - mu ** 2)))
-    lamdamu = 0.5 * (t1 * t2 - t3)
-    return lamdamu
-
-
-def shadow_s_liz(sigma, two_sigma2, mu):
-    cx = np.sqrt(2 * (1 - mu ** 2) / np.pi)
-    lamda_mudsigma = 0.5 / mu * cx * np.exp(-mu ** 2 / two_sigma2 / (1 - mu ** 2))
-    return lamda_mudsigma
-
-
-# def rpv_reflection(params_dict, mu_0, mu, cos_phi):
-#     rpv_b = params_dict['rpv_b']
-#     rpv_k = params_dict['rpv_k']
-#     rpv_r = params_dict['rpv_r']
-#     nn = params_dict['nn']
-#     vv = params_dict['vv']
-#     epsirol = params_dict['epsirol']
-#     cos_sa = -mu * mu_0 + np.sqrt(1 - mu ** 2) * np.sqrt(1 - mu_0 ** 2) * cos_phi
-#     # cosSA = cosSA.float()
-#     # RPV part
-#     f = 1 / np.pi * (mu * mu_0 * (mu + mu_0)) ** (rpv_k - 1) * rpv_r * np.exp(rpv_b * cos_sa)
-#
-#     # polarization part
-#     omega = np.arccos(cos_sa)
-#     gamma = (np.pi - omega) / 2
-#
-#     cosgamma = np.cos(gamma)
-#     singamma = np.sin(gamma)
-#     singammap = 1 / nn * singamma
-#     cosgammap = np.sqrt(1 - singammap ** 2)
-#
-#     cosbeta = (mu + mu_0) / (2 * cosgamma)
-#
-#     two_sigma2 = 0.003 + 0.00512 * vv
-#     sigma = np.sqrt(two_sigma2 / 2)
-#     tanbeta2 = (1 - cosbeta ** 2) / (cosbeta ** 2)
-#     x = -tanbeta2 / two_sigma2
-#     prefactor = 1 / two_sigma2 / cosbeta ** 3 / np.pi
-#     ppbeta = prefactor * np.exp(x)
-#
-#
-#     if ppbeta.all() == 0:
-#         ppbeta = 1e-100
-#
-#     lamdamu = shadow_s(sigma, two_sigma2, mu)
-#     lamdamu_0 = shadow_s(sigma, two_sigma2, mu_0)
-#     S = 1 / (1 + lamdamu + lamdamu_0)  # Eq.(14) of Fan et al's paper
-#
-#     rp = (nn * cosgamma - cosgammap) / (nn * cosgamma + cosgammap)
-#     rs = (cosgamma - nn * cosgammap) / (cosgamma + nn * cosgammap)
-#
-#
-#     F11 = 1 / 2 * (np.abs(rp) ** 2 + np.abs(rs) ** 2)
-#
-#
-#     Fcf = ppbeta / (4 * cosbeta * mu * mu_0)
-#
-#     Fp1 = mu
-#     Fp2 = mu * epsirol * S
-#     f2 = Fcf * F11  # Eq.(4.14)
-#     f1 = f
-#     P11 = Fp1 * f1 + Fp2 * f2
-#
-#     return P11
 
 
 def rossli_reflection(iso, geo, vol, mu, mup, dphi, hotspot = False, type = 'ambrals'):

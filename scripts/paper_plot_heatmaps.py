@@ -77,9 +77,9 @@ tr_pr = {
 # The parameters for the network
 model_pr = {
     "model_name": "continental_polluted_02_1e4",
-    "hidden_layers": 12,  # 1:8 22:12
-    "neurons": 50,  # 1:30 31:30
-    "residual_parameter": 1,  # Use this one Shai!
+    "hidden_layers": 12,
+    "neurons": 50,
+    "residual_parameter": 1,
     "activation": "tanh",
     "n_mode": 16,
     'load_model': "sza_0_continental_polluted_02_1e4",  # no model for new sceanario

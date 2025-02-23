@@ -83,7 +83,6 @@ def run_n_update_scenario(alt_vec=None, update_scenario = True):
     # generate and plot the TOA and BOA radiance
     for x_ind, x in enumerate(alt_vec):
         for method in methods:
-
             if method == 'mystic':
                 #Load the scale value (since the .spc file is less stable then the .rad)
                 scale = np.load(os.path.join(scenarios_path, 'lrt', scenario_name, 'disort_output_file.npz'))['scale']
