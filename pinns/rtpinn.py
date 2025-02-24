@@ -1043,7 +1043,7 @@ class RTPINN():
         """
         model_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Model", f"{model_pr['load_model']}.pt")
         if torch.cuda.is_available():
-            return torch.load(model_file, map_location=dev)
+            return torch.load(model_file, map_location=dev,weights_only=False)
         else:
             return torch.load(model_file, map_location=torch.device('cpu'))
 

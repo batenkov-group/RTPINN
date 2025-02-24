@@ -1,5 +1,7 @@
-# Import necessary libraries
 import os
+import sys
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(project_root)
 import torch
 import matplotlib.pyplot as plt
 import numpy as np
@@ -7,24 +9,21 @@ import configparser
 from pinns import rtpinn
 
 if torch.cuda.is_available():
-    dev = torch.device("cuda:1")
+    dev = torch.device("cuda")
 else:
     dev = torch.device("cpu")
 print(f"Using device: {dev}")
 
-# Set paths using config file
 config = configparser.ConfigParser()
 config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'init_file.ini')
 config.read(config_path)
 scenarios_path = config['PATHS']['scenarios_path']
 figs_path = config['PATHS']['figs_path']
 scenarios_path = config['PATHS']['scenarios_path']
-
-# Set seed for reproducibility
 torch.manual_seed(42)
 
-# Parameters Configuration
-# Training process parameters
+# The brdf dictionary is important only for non-lambertian scenes since the disort output doesn't containt
+# the paraters, in lambertian scenes the code ignores is
 brdf_dict = {
     'type': 'rpv',
     'rho0': 0.076,
@@ -41,8 +40,8 @@ tr_pr = {
     'sampling_seed': 21,
     'n_coll': 10000,
     'n_b': 1000,
-    "epochs": 15000,
-    "epochs_adam": 5000,
+    "epochs": 1500,
+    "epochs_adam": 0,
     "steps_lbfgs": 1,
     "nmom": 16,
     "I_0": 1,
@@ -50,7 +49,7 @@ tr_pr = {
     "N_S": 16,
     "N_R": 16,
     "scenario_type": "lrt",
-    "scenario_name": "sza_0_continental_average_02",
+    "scenario_name": "sza_0_continental_clean_02",
     "brdf_dict": brdf_dict,
     "save_results": True,
     "final_loss": 1,
@@ -64,7 +63,7 @@ model_pr = {
     "neurons": 30,
     "residual_parameter": 1,
     "activation": "tanh",
-    "n_mode": 16,
+    "n_mode": 1,
     'load_model': "no model",
     'save_model': False,
     'retrain': False,
@@ -76,8 +75,8 @@ solver = rtpinn.RTPINN(tr_pr, model_pr)
 model = solver.solve_rte(model_pr)
 scenario_path = os.path.join(scenarios_path, 'lrt', tr_pr['scenario_name'])
 lrt_results = np.load(os.path.join(scenario_path, 'disort_output_file.npz'))
-full_correction_toa = solver.new_scattering_correction(tau_vec = [0], mu_vec = lrt_results['mu'], phi_vec= lrt_results['phi']).reshape(-1).detach().cpu().numpy()
-full_correction_boa = solver.new_scattering_correction(tau_vec = [1], mu_vec =lrt_results['mu'], phi_vec= lrt_results['phi']).reshape(-1).detach().cpu().numpy()
+full_correction_toa = 0 #solver.new_scattering_correction(tau_vec = [0], mu_vec = lrt_results['mu'], phi_vec= lrt_results['phi']).reshape(-1).detach().cpu().numpy()
+full_correction_boa = 0 #solver.new_scattering_correction(tau_vec = [1], mu_vec =lrt_results['mu'], phi_vec= lrt_results['phi']).reshape(-1).detach().cpu().numpy()
 print(f"Model name: {model_pr['model_name']}")
 
 
@@ -145,12 +144,4 @@ if heat_map:
     ax.set_xlabel('mu')
     ax.set_ylabel('Altitude [km]')
     plt.savefig(f"{figs_path}/{model_pr['model_name']}_HeatMapError.pdf", bbox_inches='tight')
-    plt.show()
-
-sky_map = True
-if sky_map:
-    mu = np.linspace(0, 1, 100)
-    phi = np.linspace(0, 360, 100)
-    tau_list = [0.0]
-    pinn_rad = rtpinn.plot_skymap(model, tau_list, mu, phi * (np.pi / 180), direction='up', scale=1)
     plt.show()
