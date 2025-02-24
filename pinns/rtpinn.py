@@ -1,4 +1,3 @@
-
 import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
@@ -11,7 +10,6 @@ from libradpy import libradpy as lrp
 import pprint
 import copy
 import matplotlib.pyplot as plt
-import scipy as sc
 import sobol_seq
 import time
 import configparser
@@ -19,10 +17,7 @@ from utils.torchmath import *
 from torch.func import jacrev, vmap
 
 pi = np.pi
-extrema_values = None
-space_dimensions = 1
 
-# torch.cuda.set_device(1)
 if torch.cuda.is_available():
     dev = torch.device('cuda')
 else:
@@ -35,7 +30,7 @@ scenarios_path = config['PATHS']['scenarios_path']
 
 
 class RTPINN():
-    def __init__(self, tr_pr, model_pr, print_bool=True, initiallize_scenario = True):
+    def __init__(self, tr_pr, model_pr, print_bool=True, initiallize_scenario=True):
         if print_bool:
             pprint.pprint(tr_pr)
 
@@ -50,6 +45,10 @@ class RTPINN():
         self.parameters_values = torch.tensor([[-1.0, 1.0]])
 
     def initialize_parameters(self, tr_pr, model_pr):
+        """
+        :param tr_pr: a dictionary contating the training parameters and scenario information
+        :param model_pr: a dictionary contating the model parameters
+        """
         # Training parameters
         self.n_coll = tr_pr['n_coll']
         self.n_b = tr_pr['n_b']
@@ -69,6 +68,9 @@ class RTPINN():
         self.output_dimension = model_pr['n_mode']
 
     def initialize_scenario(self):
+        """
+        Initialize the scenario based on the scenario type
+        """
         if self.scenario_type == "lrt":
             self.handle_lrt_scenario()
         elif self.scenario_type == "file":
@@ -96,11 +98,10 @@ class RTPINN():
     def initialize_delta_m_method(self, disort_struct):
         self.tau_org = torch.tensor(disort_struct.long_table.total_optical_depth).to(dev)
         self.d_tau = torch.tensor(disort_struct.long_table.optical_depth).to(dev)
-        self.tau_shifted = torch.concatenate((torch.tensor([0],device=dev), self.tau_org)).to(dev)
+        self.tau_shifted = torch.concatenate((torch.tensor([0], device=dev), self.tau_org)).to(dev)
         if disort_struct.phase_function is not None:
-            self.accurate_phase = torch.tensor(disort_struct.phase_function,device=dev)
+            self.accurate_phase = torch.tensor(disort_struct.phase_function, device=dev)
             self.mu_phase = torch.tensor(disort_struct.mu_phase, device=dev)
-
         else:
             self.accurate_phase = None
             self.mu_phase = None
@@ -114,7 +115,7 @@ class RTPINN():
         for ii in range(self.coef_mat_org.shape[0]):
             for jj in range(self.coef_mat_org.shape[1]):
                 self.coef_mat[ii, jj] = (self.coef_mat_org[ii, jj] - self.dm_separated_fraction[ii]) / (
-                            1 - self.dm_separated_fraction[ii])
+                        1 - self.dm_separated_fraction[ii])
         self.nmom = self.N_S
 
     def handle_file_scenario(self):
@@ -152,23 +153,31 @@ class RTPINN():
         for ii in range(self.coef_mat_org.shape[0]):
             for jj in range(self.coef_mat_org.shape[1]):
                 self.coef_mat[ii, jj] = (self.coef_mat_org[ii, jj] - self.dm_separated_fraction[ii]) / (
-                            1 - self.dm_separated_fraction[ii])
+                        1 - self.dm_separated_fraction[ii])
 
     def new_scattering_correction(self, tau_vec, mu_vec, phi_vec):
+        """
+        Calculate the scattering correction for a given set of tau, mu, and phi values
+        :param tau_vec: vector of optical depth values (non normalized)
+        :param mu_vec:  vector of cosine of the zenith angle values
+        :param phi_vec: vector of azimuthal angle values
+        :return: a matrix containing the scattering correction values for tau, mu, and phi
+        """
         tau_vec = tau_vec if isinstance(tau_vec, torch.Tensor) else torch.tensor(tau_vec, device=dev)
         mu_vec = mu_vec if isinstance(mu_vec, torch.Tensor) else torch.tensor(mu_vec, device=dev)
         phi_vec = phi_vec if isinstance(phi_vec, torch.Tensor) else torch.tensor(phi_vec, device=dev)
         accurate_phase = self.accurate_phase if self.accurate_phase.dim() > 1 else self.accurate_phase.unsqueeze(0)
 
         tau_unormalized = tau_vec * self.tau_org[-1]
-        tau_ind = torch.argmin(torch.abs(self.tau_org.unsqueeze(0) - tau_unormalized.reshape(-1, 1)), dim=1)  # shape: (n_tau,)
+        tau_ind = torch.argmin(torch.abs(self.tau_org.unsqueeze(0) - tau_unormalized.reshape(-1, 1)),
+                               dim=1)  # shape: (n_tau,)
         dtheta = 10.0
         coef_mat = self.coef_mat_org[:, :len(self.mu_phase)]
         phase_r = self.phase_func_cos(self.N_S, coef_mat - self.dm_separated_fraction[:, None], self.mu_phase)
         theta0 = torch.rad2deg(torch.acos(-self.tensor_mu_0))
         thetap = torch.rad2deg(torch.acos(mu_vec))
         # need_secondary_scattering = ((mu_vec < 0) & (torch.abs(theta0 - thetap) <= dtheta)).any()
-        need_secondary_scattering = False # TODO Change when a new version of scattering correction is implemented
+        need_secondary_scattering = False  # SZDO Change when a new version of scattering correction is implemented
 
         if need_secondary_scattering:
             layer_effects = (accurate_phase[:-1, :len(self.mu_phase)] - phase_r[:-1, :]) \
@@ -176,7 +185,7 @@ class RTPINN():
             phase_2 = layer_effects.sum(dim=0).unsqueeze(1).expand(-1, len(tau_vec))
 
             phase_term = (
-                        accurate_phase[tau_ind, :len(self.mu_phase)] - phase_r[tau_ind, :]).T
+                    accurate_phase[tau_ind, :len(self.mu_phase)] - phase_r[tau_ind, :]).T
             tau_diff = (tau_vec * self.tau_org[-1] - self.tau_org[tau_ind - 1]).to(dev)
             ssa_term = self.ssa_org[tau_ind].to(dev)  # shape: (n_tau,)
             phase_2 = phase_2 + phase_term * ssa_term.unsqueeze(0) * tau_diff.unsqueeze(0)
@@ -196,13 +205,11 @@ class RTPINN():
         ctheta = (-self.tensor_mu_0 * mu_vec[:, None] +
                   torch.sqrt((1 - self.tensor_mu_0 ** 2) * (1 - mu_vec[:, None] ** 2)) * torch.cos(phi_vec[None, :]))
 
-
         ctheta_ind = torch.searchsorted(self.mu_phase, ctheta) - 1
         ctheta_ind = torch.clamp(ctheta_ind, 0, len(self.mu_phase) - 2)
         mu_low = self.mu_phase[ctheta_ind]
         mu_high = self.mu_phase[ctheta_ind + 1]
         delta = torch.clamp(mu_high - mu_low, min=1e-8)
-
 
         L = accurate_phase.shape[0]
         phase_a_list = []
@@ -213,7 +220,6 @@ class RTPINN():
             phase_a_list.append(phase_a_l)
         phase_a = torch.stack(phase_a_list, dim=0)
 
-
         phas_m_coef = (self.coef_mat_org[:, :len(self.mu_phase)] - self.dm_separated_fraction[:, None]) \
                       / (1.0 - self.dm_separated_fraction[:, None])
         phas_m_list = []
@@ -222,12 +228,8 @@ class RTPINN():
             phas_m_list.append(phas_m_l)
         phas_m = torch.stack(phas_m_list, dim=0)
 
-
         phase_st = phase_a / (
-                    1.0 - self.ssa.unsqueeze(1).unsqueeze(2) * self.dm_separated_fraction.unsqueeze(1).unsqueeze(2))
-
-
-
+                1.0 - self.ssa.unsqueeze(1).unsqueeze(2) * self.dm_separated_fraction.unsqueeze(1).unsqueeze(2))
 
         for lu in range(n_tau):
             u_lyr = tau_ind[lu].item()
@@ -241,7 +243,6 @@ class RTPINN():
                     cs_p = self.single_scat(u_lyr, phast_p[i, j], mu_vec[i].item(), u_tau_val, dm=False)
                     full_correction_mat[i, j, lu] = cs_dm - cs_p
 
-
             if need_secondary_scattering:
                 theta0 = torch.rad2deg(torch.acos(-self.tensor_mu_0))
                 thetap = torch.rad2deg(torch.acos(mu_vec))
@@ -254,6 +255,15 @@ class RTPINN():
         return full_correction_mat
 
     def single_scat(self, u_lyr, phast, mu, u_tau, dm=True):
+        """
+        Calculate the single scattering correction for a given layer, phase function, mu, and optical depth
+        :param u_lyr: user layer for which the code calculates the single scattering correction
+        :param phast: corrected phase function
+        :param mu: azimuth angle
+        :param u_tau: user optical depth
+        :param dm: delta-m flag
+        :return:
+        """
         exp0 = torch.exp(-u_tau / self.tensor_mu_0)
         tiny = 1e-4
         if dm:
@@ -270,7 +280,7 @@ class RTPINN():
                 else:
                     ans += ssa_vec[lyr - 1] * phast * (tau_vec_local[lyr] - tau_vec_local[lyr - 1])
             ans = (1.0 / (4.0 * torch.pi * self.tensor_mu_0)) * exp0 * (
-                        ans + ssa_vec[u_lyr] * phast * (u_tau - tau_vec_local[u_lyr - 1]))
+                    ans + ssa_vec[u_lyr] * phast * (u_tau - tau_vec_local[u_lyr - 1]))
             return ans
         if mu > 0.0:
             ans = 0.0
@@ -291,6 +301,20 @@ class RTPINN():
         return ans
 
     def new_secondary_scat(self, iu, lu, tau_vec, tau_ind, ctheta, ctheta_ind, phase_2, mu_eq, neg_phas, norm_phas):
+        """
+        :param iu: user zenith angle index
+        :param lu: user layer index
+        :param tau_vec: vector of optical depth values
+        :param tau_ind: optical depth index
+        :param ctheta: current angle for calcuation
+        :param ctheta_ind: current angle index
+        :param phase_2: residual phase function
+        :param mu_eq:cos(theta) phase integration grid points,
+                     equidistant in abs(f_phas2)
+        :param neg_phas: negative phase flag
+        :param norm_phas: normalization factor for phase integration
+        :return: 
+        """
         tiny = 1e-4
         n_phase = len(self.mu_phase)
         dtau = tau_vec[lu] * self.tau_org[-1] - self.tau_org[tau_ind[lu] - 1]
@@ -318,6 +342,20 @@ class RTPINN():
         return ims_correction
 
     def calc_phase_squared(self, n_phase, lu, ctheta, nf, mu_phase, phas2, mu_eq, neg_phas, norm_phas):
+        """
+        Calculate double scattering intensity correction
+        :param n_phase: number of phase angels
+        :param lu: user layer index
+        :param ctheta: current scattering angle
+        :param nf: number of angular phase integration grid point
+        :param mu_phase: cos(theta) grid of phase function
+        :param phas2: residual phase function
+        :param mu_eq:cos(theta) phase integration grid points,
+                     equidistant in abs(f_phas2)
+        :param neg_phas: negative phase flag
+        :param norm_phas: normalization factor for phase integration
+        :return:
+        """
         if not isinstance(mu_eq, torch.Tensor):
             mu_eq = torch.tensor(mu_eq, device=dev)
         if not isinstance(neg_phas, torch.Tensor):
@@ -398,7 +436,7 @@ class RTPINN():
                 while it + 1 < nphase and f_phas2_abs[it + 1] < f_phas2:
                     it += 1
                 mu_eq[i, lu] = mu_phase[it] + (f_phas2 - f_phas2_abs[it]) / (f_phas2_abs[it + 1] - f_phas2_abs[it]) * (
-                            mu_phase[it + 1] - mu_phase[it])
+                        mu_phase[it + 1] - mu_phase[it])
                 if phas2[it, lu] > 0.0 and phas2[it + 1, lu] > 0.0:
                     neg_phas[i, lu] = False
                 elif phas2[it, lu] < 0.0 and phas2[it + 1, lu] < 0.0:
@@ -412,25 +450,51 @@ class RTPINN():
             neg_phas[-1, lu] = phas2[-1, lu] <= 0.0
             norm_phas[lu] = f_phas2_abs[-1] / ((nf - 1) * np.pi)
         return mu_eq, neg_phas, norm_phas
+
     def read_csv_file(self, filename):
+        """
+        A dedicated read csv file function for loading parameters
+        :param filename:
+        :return: parameter table
+        """
         return pd.read_csv(os.path.join(scenarios_path, 'file', self.scenario_name, filename))
 
     def read_tensor_from_csv(self, filename):
+        """
+        A dedicated read tensor from csv file function for loading tensors
+        :param filename:
+        :return:
+        """
         return torch.tensor(self.read_csv_file(filename).values).to(dev)
 
     def phase_func_cos(self, M, coeff_vec, theta):
-
+        """
+        Calculates the value of the phase function for a given scattering angle (run over full scattering angle not fourier decomposition)
+        :param M: order of the Legendre decomposition
+        :param coeff_vec: Legendre coefficients
+        :param theta: scattering angle
+        :return: phase function value
+        """
         theta = theta.to(coeff_vec.device)
         leg_sum = torch.zeros_like(theta)
 
         for l in range(M):
-
             leg_poly = torch.tensor(legendre(l)(theta.cpu().numpy())).to(dev)
 
             leg_sum += (2 * l + 1) * coeff_vec[l] * leg_poly
 
         return leg_sum
+
     def phase_func(self, M, coeff_vec, mu, mu_p, phi, phi_p):
+        """
+        Calaculates the value of the phase function according to mu,phi,mu_p and phi_p
+        :param M: 
+        :param coeff_vec: 
+        :param mu: 
+        :param mu_p: 
+        :param phi: 
+        :param phi_p: 
+        """
         full_sum = np.zeros((len(mu), len(mu_p)))
         leg_sum = np.zeros((len(mu), len(mu_p)))
         mu_mesh, mu_p_mesh = torch.meshgrid(mu, mu_p)
@@ -445,12 +509,23 @@ class RTPINN():
             ans = ans + (2 * l + 1) * coeff_vec[l] * (legendre(l)(mu_mesh) * legendre(l)(mu_p_mesh) + 2 * leg_sum)
 
     def omega(self, x):
+        """
+        the pytorch object for the single scattering albedo
+        :param x: 
+        :return: 
+        """
         ssa_x = interp(self.total_optical_depth, self.ssa, x * self.total_optical_depth[-1])
         return ssa_x
 
-
-
     def kernel(self, mu, mu_prime, legendre_coef, kernel_option='D'):
+        """
+        This function is called during the loss calculation to find the integration kernal over the phase function 
+        :param mu: 
+        :param mu_prime: 
+        :param legendre_coef: 
+        :param kernel_option: 
+        :return: 
+        """
         k = torch.tensor(()).new_full(size=(mu.shape[0], mu_prime.shape[0], self.n_mode), fill_value=0.0)
         for mm in range(self.n_mode):
             for ll in range(mm, self.nmom):
@@ -467,15 +542,15 @@ class RTPINN():
                     k[:, :, mm] = k[:, :, mm] + (2 * ll + 1) * d_ll * kn
         return k.to(dev)
 
-    def fourier_coeff(self, cos_theta, p_func, n_quad, ll):
-        mu_prime, w = np.polynomial.legendre.leggauss(int(n_quad))
-        cubic_interp = interp1d(np.flip(cos_theta.reshape(-1)), np.flip(p_func.reshape(-1)), kind='cubic',
-                                fill_value="extrapolate")
-        p_interp = cubic_interp(mu_prime)
-        leg_val = legendre(ll)(mu_prime)
-        return 0.5 * np.sum(p_interp * leg_val * w)
-
     def reflection_coeff(self, brdf, mm, phi_prime, w):
+        """
+        Calculates the surface reflection for the Boundary loss term according to the brdf, mode, phi_prime
+        :param brdf:
+        :param mm:
+        :param phi_prime:
+        :param w:
+        :return:
+        """
         if mm == 0:
             const = 0.5
         else:
@@ -487,22 +562,30 @@ class RTPINN():
         return torch.sum(model(torch.cat([x, mu], 1)) * torch.cos(modes_vec * (phi - self.phi_0)))
 
     def compute_scattering(self, x, kern_coll, w_tensor, model):
+        """
+        computes the scattering term of the RTE, used to calculate R_int
+        :param x:
+        :param kern_coll:
+        :param w_tensor:
+        :param model:
+        :return:
+        """
         I = model(self.inputs)
-        w_tensor_tile = torch.tile(w_tensor, (len(x),)).view(-1,1)
-        scatter_values = torch.sum(kern_coll*(I*w_tensor_tile.view(-1, 1)).reshape(x.shape[0], w_tensor.shape[0],I.shape[1]),1)
+        w_tensor_tile = torch.tile(w_tensor, (len(x),)).view(-1, 1)
+        scatter_values = torch.sum(
+            kern_coll * (I * w_tensor_tile.view(-1, 1)).reshape(x.shape[0], w_tensor.shape[0], I.shape[1]), 1)
 
         return scatter_values
 
     def generator_samples(self, type_point_param, samples, dim, random_seed, extrema):
         """
-        #todo explain this function
+        # This function allows the user to changing the sampling method for the angular and spatial domain
         :param type_point_param:
-        the pattern of points in the space either "uniform" "sobol" "grid"
+        the pattern of points in the space either "uniform" "sobol" "grid" "quadrature" "stream_quadrature"
         :param samples: num of samples
         :param dim: the dimension of the sampled space
         :param random_seed: seed for data samples
         :param extrema: extrema points between the sampled interval
-        :param normalized_samples: boolean to set whether the sampling is normalized according to height
         :return:
         """
         if extrema == []:
@@ -562,9 +645,9 @@ class RTPINN():
             return inputs, w
         elif type_point_param == "stream_quadrature":
             if dim == 2:
-                x_mu, w_mu = np.polynomial.legendre.leggauss(int(self.N_S/2))
+                x_mu, w_mu = np.polynomial.legendre.leggauss(int(self.N_S / 2))
                 x_mu = np.concatenate([-0.5 + 0.5 * x_mu, 0.5 + 0.5 * x_mu])
-                w_mu = np.concatenate([w_mu/2, w_mu/2])
+                w_mu = np.concatenate([w_mu / 2, w_mu / 2])
                 x_tau, w_tau = np.polynomial.legendre.leggauss(int(samples / self.N_S))
                 inputs = torch.from_numpy(np.array(np.meshgrid(x_mu, x_tau, indexing='ij')).reshape(2, -1).T)
                 w = torch.from_numpy((w_mu * w_tau[:, None]).ravel())
@@ -585,24 +668,33 @@ class RTPINN():
         return inputs.to(dev)
 
     def compute_R_int(self, network, x_f_train, omega_x_f_train, kern_coll, kern_x_0, w_tensor):
+        """
+        Compute the residual of the radiative transfer equation computes R_int in the collocation points
+        :param network:
+        :param x_f_train:
+        :param omega_x_f_train:
+        :param kern_coll:
+        :param kern_x_0:
+        :param w_tensor:
+        :return:
+        """
         I = network(x_f_train)
         scatter_values = self.compute_scattering(x_f_train[:, 0], kern_coll, w_tensor, network)
         grad_I_m = vmap(jacrev(network))(x_f_train)[:, :, 0] * (1 / self.total_optical_depth[-1])
         X_m_0 = (omega_x_f_train.unsqueeze(1).expand(I.shape) * self.I_0 / (4 * pi)) * kern_x_0.squeeze(1)
-        Q_m = X_m_0 * torch.exp(-x_f_train[:, 0].unsqueeze(1).expand(I.shape) * (self.total_optical_depth[-1]) / self.tensor_mu_0)
+        Q_m = X_m_0 * torch.exp(
+            -x_f_train[:, 0].unsqueeze(1).expand(I.shape) * (self.total_optical_depth[-1]) / self.tensor_mu_0)
         c_vec = 1 / torch.ones(self.n_mode, device=dev)
-        # c_vec = 1 / (torch.arange(self.n_mode, device = dev) + 1)
-        return torch.sum(c_vec.unsqueeze(0).expand(I.shape)*((x_f_train[:, 1].unsqueeze(1).expand(I.shape) * grad_I_m - I + (omega_x_f_train.unsqueeze(1).expand(I.shape) / 2) * scatter_values + Q_m) ** 2),1)
-
-    def add_internal_points(self, n_internal):
-        x_internal = torch.tensor(()).new_full(
-            size=(n_internal, self.parameters_values.shape[0] + self.domain_values.shape[0]),
-            fill_value=0.0)
-        y_internal = torch.tensor(()).new_full(size=(n_internal, 1), fill_value=0.0)
-
-        return x_internal, y_internal
+        return torch.sum(c_vec.unsqueeze(0).expand(I.shape) * ((x_f_train[:, 1].unsqueeze(1).expand(
+            I.shape) * grad_I_m - I + (omega_x_f_train.unsqueeze(1).expand(I.shape) / 2) * scatter_values + Q_m) ** 2),
+                         1)
 
     def add_boundary(self, n_boundary):
+        """
+        adds boundary points over which the boundary term is calculated
+        :param n_boundary:
+        :return:
+        """
         if (self.sampling_method in ["quadrature", "stream_quadrature"]):
             mu0, w0 = self.generator_samples(self.sampling_method, int(n_boundary / 2), self.parameters_values.shape[0],
                                              1024,
@@ -636,18 +728,29 @@ class RTPINN():
             return torch.cat([x, mu], 1), ub
 
     def add_collocations(self, n_collocation):
+        """
+        Add collocation points for interior residual calculation
+        :param n_collocation:
+        :return:
+        """
         u = torch.tensor(()).new_full(size=(n_collocation, 1), fill_value=np.nan)
         if self.sampling_method in ["quadrature", "stream_quadrature"]:
             inputs, w = self.generator_samples(self.sampling_method, int(n_collocation),
-                                               self.parameters_values.shape[0] + self.domain_values.shape[0], 1024,extrema = [])
+                                               self.parameters_values.shape[0] + self.domain_values.shape[0], 1024,
+                                               extrema=[])
             return inputs, u, w
         else:
             inputs = self.generator_samples(self.sampling_method, int(n_collocation),
-                                            self.parameters_values.shape[0] + self.domain_values.shape[0], 1024,extrema = [])
+                                            self.parameters_values.shape[0] + self.domain_values.shape[0], 1024,
+                                            extrema=[])
             return inputs, u
 
-    # S.Z 120923 Method added to reduce repitition of code in the apply BC method
     def boundary_settings(self, x_boundary, u_boundary):
+        """
+        This function is used to set the boundary points for the boundary term calculation
+        :param x_boundary: boundary point values
+        :param u_boundary: set the expected result when possible
+        """
         x = x_boundary[:, 0]
         mu = x_boundary[:, 1]
 
@@ -717,18 +820,20 @@ class RTPINN():
             if self.brdf_dict['type'] == 'rpv':
                 for index_p, mu_p_val in enumerate(self.mu_prime):
                     brdf = rpv_reflection(self.brdf_dict['rho0'], self.brdf_dict['k'], self.brdf_dict['theta'],
-                                             MU_G, mu_p_val, PHI_PRIME)
+                                          MU_G, mu_p_val, PHI_PRIME)
                     for mm in range(self.n_mode):
                         self.rho_m[index_p, :, mm] = self.reflection_coeff(brdf, mm, PHI_PRIME, W)
                 brdf = rpv_reflection(self.brdf_dict['rho0'], self.brdf_dict['k'], self.brdf_dict['theta'],
-                                         MU_G, self.tensor_mu_0, PHI_PRIME)
+                                      MU_G, self.tensor_mu_0, PHI_PRIME)
                 for mm in range(self.n_mode):
                     self.rho_m_0[:, mm] = self.reflection_coeff(brdf, mm, PHI_PRIME, W)
 
-
-
-
-    def apply_BC_N(self, model):
+    def apply_BC(self, model):
+        """
+        calculates the surface reflection for the boundary loss term
+        :param model:
+        :return: expected surface reflection
+        """
         model_outputs = model(self.reflection_inputs)
         I_tau_star = torch.zeros_like(self.u_boundary_multi_mod)
         u_b_ground = self.compute_ground(model_outputs)
@@ -736,6 +841,11 @@ class RTPINN():
         return I_tau_star
 
     def compute_ground(self, model_outputs):
+        """
+        Calculate the ground boundary condition
+        :param model_outputs:
+        :return:
+        """
         k = torch.sum(
             model_outputs.unsqueeze(1).expand(self.N_R, self.rho_m.shape[1], self.n_mode) * self.rho_m *
             self.mu_prime.unsqueeze(2).expand(self.N_R, self.rho_m.shape[1], self.n_mode) * self.w.unsqueeze(2).expand(
@@ -746,10 +856,16 @@ class RTPINN():
         u_b_ground = (1 / torch.pi) * self.tensor_mu_0 * torch.exp(
             -self.total_optical_depth[-1] / self.tensor_mu_0) * self.rho_m_0 * self.I_0 + const * k
 
-
         return u_b_ground
 
     def compute_flux(self, model, tau, direction):
+        """
+        Calculate the flux for each optical depth value
+        :param model: current model
+        :param tau: optical depth in which the flux is evaluated
+        :param direction: upwelling or downwelling flux
+        :return: flux value
+        """
         if direction == 'down':
             mu_prime, w = np.polynomial.legendre.leggauss(int(self.N_S / 2))
             mu_prime = torch.tensor(mu_prime).reshape(int(self.N_S / 2), -1).to(dev)
@@ -759,7 +875,7 @@ class RTPINN():
             k = torch.sum(model(torch.cat([tau_quad, -mu_prime], 1)) * mu_prime * w)
             return k * pi
         else:
-            # TODO: implement the upwelling flux
+            # SZDO: implement the upwelling flux
             mu_prime, w = np.polynomial.legendre.leggauss(int(self.N_S / 2))
             mu_prime = torch.tensor(mu_prime).reshape(int(self.N_S / 2), -1).to(dev)
             w = torch.tensor(w).reshape(int(self.N_S / 2), -1).to(dev)
@@ -787,7 +903,7 @@ class RTPINN():
         self.boundary_settings(x_b_train, u_b_train)
         self.inputs = self.prepare_inputs(x_coll_train, mu_prime)
         x_coll_train.requires_grad = True
-        loss_obj = PinnsLoss(self.apply_BC_N, self.compute_R_int, self.x_boundary_inf.float())
+        loss_obj = PinnsLoss(self.apply_BC, self.compute_R_int, self.x_boundary_inf.float())
         train_loss_total, epochs_vec = [], []
         for epoch in range(self.n_epohcs):
             optimizer = optimizer_ADAM if epoch < epoch_ADAM else optimizer_LBFGS
@@ -805,6 +921,22 @@ class RTPINN():
 
     def create_closure(self, optimizer, model, x_coll_train, omega_x_f_train, kern_coll, kern_x_0, w_tensor, mu_prime,
                        loss_obj, train_loss_total, save=False):
+        """
+        Creates the closure function used mainly for the LBFGS optimzier
+        :param optimizer: used optimizer
+        :param model: current model
+        :param x_coll_train: training points
+        :param omega_x_f_train: ssa
+        :param kern_coll: kernel value
+        :param kern_x_0: direct part in the RTE
+        :param w_tensor: quadrature weights
+        :param mu_prime: quadrature angles
+        :param loss_obj: loss function
+        :param train_loss_total: list of loss values for further analysis
+        :param save: boolean for saving loss values
+        :return:
+        """
+
         def closure():
             optimizer.zero_grad()
             loss_f = loss_obj(model, x_coll_train, omega_x_f_train, kern_coll, kern_x_0, w_tensor, mu_prime,
@@ -817,6 +949,11 @@ class RTPINN():
         return closure
 
     def compute_legendre_coef(self, x_coll_train):
+        """
+        Compute the Legendre coefficients for the phase function
+        :param x_coll_train:
+        :return: Legendere coefficients
+        """
         legendre_coef = []
         for ii in range(self.nmom):
             legendre_coef.append(interp(self.total_optical_depth.to(dev), self.coef_mat[:, ii].to(dev),
@@ -824,6 +961,10 @@ class RTPINN():
         return legendre_coef
 
     def double_gauss_legendre_quadrature(self):
+        """
+        Compute the double Gauss-Legendre quadrature for the scattering term
+        :return: angles values and angle weights for integration
+        """
         mu_prime, w = np.polynomial.legendre.leggauss(int(self.N_S / 2))
         mu_prime = np.concatenate([-0.5 + 0.5 * mu_prime, 0.5 + 0.5 * mu_prime])
         w = np.concatenate([w / 2, w / 2])
@@ -843,7 +984,7 @@ class RTPINN():
 
         if model_pr['load_model'] == "no model" or model_pr['retrain']:
             # Prepare training data
-            x_b_train, u_b_train, x_coll_train = self.prepare_training_data()
+            x_b_train, u_b_train, x_coll_train, w_b, w_coll = self.prepare_training_data()
 
             # Train model
             start = time.time()
@@ -859,12 +1000,17 @@ class RTPINN():
         return model
 
     def load_or_initialize_model(self, model_pr, print_bool):
+        """
+        Load or initialize the model based on the model properties.
+        :param model_pr: model properties dictionary
+        :param print_bool: determine whether to print the model properties or not
+        :return:
+        """
         if model_pr['load_model'] == "no model" or model_pr['retrain']:
-            input_dimensions = len(self.parameters_values) + space_dimensions
+            input_dimensions = len(self.parameters_values) + 1
             output_dimension = self.output_dimension
-
-            print('************model properties************')
             if print_bool:
+                print('************model properties************')
                 pprint.pprint(model_pr)
 
             if model_pr['retrain']:
@@ -879,15 +1025,22 @@ class RTPINN():
                 init_xavier(model)
 
             if torch.cuda.is_available():
-                print("Loading model on GPU")
+                if print_bool:
+                    print("Loading model on GPU")
                 model.cuda(device=dev)
         else:
-            print("model name:", model_pr['load_model'])
+            if print_bool:
+                print("model name:", model_pr['load_model'])
             model = self.load_model(model_pr)
 
         return model
 
     def load_model(self, model_pr):
+        """
+        Load the model from the saved model file
+        :param model_pr: model properties which include the loaded model name
+        :return: loaded model
+        """
         model_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Model", f"{model_pr['load_model']}.pt")
         if torch.cuda.is_available():
             return torch.load(model_file, map_location=dev)
@@ -895,6 +1048,10 @@ class RTPINN():
             return torch.load(model_file, map_location=torch.device('cpu'))
 
     def prepare_training_data(self):
+        """
+        Prepare the training data for the model
+        :return: collocation and boundary points and weights for weighted loss case
+        """
         if self.sampling_method in ["quadrature", "stream_quadrature"]:
             x_b_train, u_b_train, w_b = self.add_boundary(2 * self.n_b)
             x_coll_train, y_coll, w_coll = self.add_collocations(self.n_coll)
@@ -908,6 +1065,17 @@ class RTPINN():
         return x_b_train, u_b_train, x_coll_train, w_b, w_coll
 
     def train_model(self, model, model_pr, x_coll_train, x_b_train, u_b_train, w_coll=None, w_b=None):
+        """
+        Train the model using the Adam and LBFGS optimizers by calling the fit function
+        :param model: current model
+        :param model_pr: model properties dictionary
+        :param x_coll_train: collocation points
+        :param x_b_train: boundary training points
+        :param u_b_train: expected boundary values
+        :param w_coll: collocation points weights for a weighted loss case
+        :param w_b: boundary points weight for a weighted loss case
+        :return: trained model
+        """
         optimizer_LBFGS = torch.optim.LBFGS(model.parameters(),
                                             max_iter=self.steps_lbfgs,
                                             max_eval=None,
@@ -932,6 +1100,11 @@ class RTPINN():
         print('*' * 10)
 
     def save_model(self, model, model_pr):
+        """
+        save current model, the model will be saved in the Model directory
+        :param model:
+        :param model_pr:
+        """
         model_path = os.path.join("..", "Model", f"{model_pr['model_name']}.pt")
         model_pr_path = os.path.join("..", "Model", f"{model_pr['model_name']}_model_pr.csv")
         tr_pr_path = os.path.join("..", "Model", f"{model_pr['model_name']}_tr_pr.csv")
@@ -939,7 +1112,22 @@ class RTPINN():
         pd.DataFrame(model_pr, index=[0]).to_csv(model_pr_path)
         pd.DataFrame(self.tr_pr, index=[0]).to_csv(tr_pr_path)
 
+
 def plot_1D(model, tau_list, mu_vec, phi, correction=0, scale=1, color=None, label=None, fourier=True, ax=None):
+    """
+    Plot an azimuth cut of the radiance for different optical depth in different zenith angles (both upwelling and downwelling)
+    :param model: evaluated model
+    :param tau_list: optical depth list
+    :param mu_vec: zenith angle cector
+    :param phi: azimuth angle
+    :param correction: matrix of precalculated intensity correction values
+    :param scale: scale used to move from nomalized to corrected RTE
+    :param color: color of the plot
+    :param label: label of the plot
+    :param fourier: fourier order
+    :param ax: axis used for the matplotlib plotting function
+    :return:
+    """
     if np.isnan(correction).any():
         correction = 0
     if ax == None:
@@ -970,7 +1158,20 @@ def plot_1D(model, tau_list, mu_vec, phi, correction=0, scale=1, color=None, lab
                     ax.plot(x_test[:, 1], radiance_pinn_np, label=label, color=color)
         return radiance_pinn_np
 
+
 def plot_skymap(model, tau_list, umu_vec, phi_vec, scale, correction=None, direction="up"):
+    """
+    Plot the skymap of the radiance for different optical depth values, clots a polar plot for different azimuth angles and zenith angles
+    either upwelling or downwelling in specific optical depth
+    :param model:
+    :param tau_list:
+    :param umu_vec:
+    :param phi_vec:
+    :param scale:
+    :param correction:
+    :param direction:
+    :return:
+    """
     radiance_mat = np.zeros((len(tau_list), len(umu_vec), len(phi_vec)))
     for tau_i, tau in enumerate(tau_list):
         for phi_i, phi in enumerate(phi_vec):
@@ -988,7 +1189,6 @@ def plot_skymap(model, tau_list, umu_vec, phi_vec, scale, correction=None, direc
     return radiance_mat
 
 
-# plot the heat map of the radiance function given by the mod
 def plot_heatmap(model, alt_vec, mu, tau_vec, scale, correction, tau_star):
     """
     :param model: the trained model
@@ -997,24 +1197,21 @@ def plot_heatmap(model, alt_vec, mu, tau_vec, scale, correction, tau_star):
     :param tau_vec: a vector of the matching optical depths (size equal to alt_vec)
     :param x_coll_train_km: the training collocation points, if not given it won't plot them
     :param date_str: string for file names should contain the run initial time
-    :return: nothing only plots the results on a heat map
+    :return: nothing only plots the results on a heat map for altitude and zenith angle (assumes average radiance output, m=1)
     """
     avg_radiance = np.zeros([len(alt_vec), len(mu)])
     for ii in range(len(alt_vec)):
-        x_test = np.ones([len(mu), 2]) * tau_vec[ii]/tau_star
+        x_test = np.ones([len(mu), 2]) * tau_vec[ii] / tau_star
         x_test[:, 1] = mu
         radiance_pinn = model(torch.Tensor(x_test).to(dev))
         if correction is None:
             avg_radiance[ii, :] = radiance_pinn.detach().cpu().numpy().reshape(-1) * scale
         else:
-            avg_radiance[ii, :] = (radiance_pinn.detach().cpu().numpy().reshape(-1) + correction[ii,:]) * scale
+            avg_radiance[ii, :] = (radiance_pinn.detach().cpu().numpy().reshape(-1) + correction[ii, :]) * scale
     #
     plt.imshow(avg_radiance, cmap='jet', aspect='auto', origin='lower', vmin=0,
                extent=[mu.min(), mu.max(), alt_vec.min(), alt_vec.max()])
     return avg_radiance
-
-
-
 
 
 class Pinns(nn.Module):
@@ -1036,7 +1233,6 @@ class Pinns(nn.Module):
 
         self.activation = activation(self.act_string)
 
-
     def forward(self, x):
         x = self.activation(self.input_layer(x))
         for l in self.hidden_layers:
@@ -1049,6 +1245,7 @@ class Pinns(nn.Module):
             fourier_sum = fourier_sum + self.forward(input_vec[:, 0:2])[:, mode].reshape(-1) * \
                           torch.cos(mode * (input_vec[:, 2])).to(dev).reshape(-1)
         return fourier_sum
+
     def update_from_file(self, weight_file, params_file):
         params_dict = torch.load(params_file)
         weights = torch.load(weight_file)
@@ -1067,7 +1264,6 @@ class Pinns(nn.Module):
         self.load_state_dict(weights)
 
 
-
 class PinnsLoss(torch.nn.Module):
     def __init__(self, apply_BC, compute_res, x_boundary_inf):
         super(PinnsLoss, self).__init__()
@@ -1076,7 +1272,22 @@ class PinnsLoss(torch.nn.Module):
         self.x_boundary_inf = x_boundary_inf
 
     def forward(self, network, x_f_train, omega_x_f_train, kern_coll, kern_x_0,
-                w_tensor, mu_prime_tensor, lambda_vec, w_coll=None, w_b=None, computing_error=False, loss_type='total'):
+                w_tensor, mu_prime_tensor, lambda_vec, w_coll=None, w_b=None, loss_type='total'):
+        """
+        Main PINNS loss function calls the different residual terms functions to calculate the loss over the collocation and boundary points
+        :param network: current model
+        :param x_f_train: current collocation points
+        :param omega_x_f_train: ssa at collocation points
+        :param kern_coll: kernel at collocation points
+        :param kern_x_0: direct term at collocation points
+        :param w_tensor: quadrature weights for scattering integral
+        :param mu_prime_tensor: quadrature angles for scattering integral
+        :param lambda_vec: regularization parameters
+        :param w_coll: weighted loss weights for collocation points
+        :param w_b: weighted loss weights for boundary points
+        :param loss_type: allows computation of a specific loss term
+        :return:
+        """
         epsilon = 1e-10
         lambda_residual = network.lambda_residual
         u_pred = network(self.x_boundary_inf)
@@ -1085,13 +1296,12 @@ class PinnsLoss(torch.nn.Module):
         if network.output_dimension > 1:
             reg_one = torch.stack((x_f_train[:, 0], torch.ones_like(x_f_train[:, 0], device=dev)), dim=1)
             res_one = network(reg_one)[:, 1:].pow_(2)
-            reg_m_one= torch.stack((x_f_train[:, 0], - 1 * torch.ones_like(x_f_train[:, 0], device=dev)), dim=1)
+            reg_m_one = torch.stack((x_f_train[:, 0], - 1 * torch.ones_like(x_f_train[:, 0], device=dev)), dim=1)
             res_m_one = network(reg_m_one)[:, 1:].pow_(2)
             loss_reg = torch.mean(res_one + res_m_one)
         else:
             loss_reg = 0
-        if not computing_error:
-            loss_vars = torch.sum(w_b * res_b) if w_b is not None else torch.mean(res_b)
+        loss_vars = torch.sum(w_b * res_b) if w_b is not None else torch.mean(res_b)
 
         if loss_type == 'vars':
             return torch.log10(loss_vars + epsilon)
@@ -1107,10 +1317,19 @@ class PinnsLoss(torch.nn.Module):
         return loss_log
 
 
-
-
-def rossli_reflection(iso, geo, vol, mu, mup, dphi, hotspot = False, type = 'ambrals'):
-
+def rossli_reflection(iso, geo, vol, mu, mup, dphi, hotspot=False, type='ambrals'):
+    """
+    Compute the Ross-Li BRDF model
+    :param iso:
+    :param geo:
+    :param vol:
+    :param mu:
+    :param mup:
+    :param dphi:
+    :param hotspot:
+    :param type:
+    :return:
+    """
     # Ensure mu and mup are positive
     if type == 'ambrals':
         iso = iso / np.pi
@@ -1154,7 +1373,8 @@ def rossli_reflection(iso, geo, vol, mu, mup, dphi, hotspot = False, type = 'amb
 
     g_sq = tan_i1 ** 2 + tan_r1 ** 2 + 2.0 * tan_i1 * tan_r1 * torch.cos(dphi)
 
-    cos_t = ratio_hb * (cos_i1 * cos_r1) / (cos_i1 + cos_r1) * torch.sqrt(g_sq + (tan_i1 * tan_r1 * torch.sin(dphi)) ** 2)
+    cos_t = ratio_hb * (cos_i1 * cos_r1) / (cos_i1 + cos_r1) * torch.sqrt(
+        g_sq + (tan_i1 * tan_r1 * torch.sin(dphi)) ** 2)
 
     t = torch.arccos(torch.clip(cos_t, -1.0, 1.0))
 
@@ -1169,8 +1389,21 @@ def rossli_reflection(iso, geo, vol, mu, mup, dphi, hotspot = False, type = 'amb
     return ans
 
 
-
 def rpv_reflection(rho0, k, theta, mu1, mu2, phi, sigma=0, t1=0, t2=0, scale=1):
+    """
+    Compute the RPV BRDF model
+    :param rho0:
+    :param k:
+    :param theta:
+    :param mu1:
+    :param mu2:
+    :param phi:
+    :param sigma:
+    :param t1:
+    :param t2:
+    :param scale:
+    :return:
+    """
     # Adjust azimuth convention
     phi = torch.pi - phi
 
@@ -1233,31 +1466,5 @@ def xi_func(mu_1, mu_2, tau):
     return result
 
 
-def reflection_coeff(brdf, mm, phi_prime, w):
-    if mm == 0:
-        const = 0.5
-    else:
-        const = 1
-    return const * torch.sum(brdf * torch.cos(mm * phi_prime) * w, 0)
-
 if __name__ == '__main__':
-    mu = torch.arange(0.001,1,0.001)
-    mu_p = torch.tensor(torch.cos(torch.tensor(60*torch.pi/180)))
-    brdf = rpv_reflection(0.027, 0.647, -0.169, torch.tensor(mu), mu_p, torch.tensor(torch.pi))
-    phi_prime, w = np.polynomial.legendre.leggauss(int(1500))
-    W = torch.tensor(w.reshape(len(w), 1).repeat(mu.shape[0], 1)).float()
-    phi_prime_tensor = torch.tensor( pi + pi * phi_prime).float()
-    PHI_PRIME, MU_G = torch.meshgrid(phi_prime_tensor, mu, indexing='ij')
-    rho_m = torch.tensor(()).new_full(size=(mu.shape[0], 16),
-                                           fill_value=0.0)
-    brdf_fourier = torch.zeros_like(brdf)
-    for mm in range(16):
-        rho_m[:, mm] = reflection_coeff(brdf, mm, PHI_PRIME, W)
-        brdf_fourier = brdf_fourier + rho_m[:, mm] * np.cos(mm * torch.pi)
-    # Convert phi_prime to tensor and move to device
-    # plt.plot(torch.acos(mu) * 180 / torch.pi, brdf)
-    plt.plot(torch.acos(mu) * 180 / torch.pi, brdf_fourier)
-    plt.xlim([0, 80])
-    plt.ylim([0, 0.2])
-    plt.grid(True)
-    plt.show()
+    print("rtpinn.py ran")

@@ -50,7 +50,7 @@ tr_pr = {
     "N_S": 16,
     "N_R": 16,
     "scenario_type": "lrt",
-    "scenario_name": "temp_polluted_clean_8sza_60_continental_polluted_02",
+    "scenario_name": "sza_0_continental_average_02",
     "brdf_dict": brdf_dict,
     "save_results": True,
     "final_loss": 1,
@@ -59,14 +59,14 @@ tr_pr = {
 
 # Model parameters
 model_pr = {
-    "model_name": "test1301",
+    "model_name": "temp",
     "hidden_layers": 8,
     "neurons": 30,
     "residual_parameter": 1,
     "activation": "tanh",
     "n_mode": 16,
     'load_model': "no model",
-    'save_model': True,
+    'save_model': False,
     'retrain': False,
 }
 

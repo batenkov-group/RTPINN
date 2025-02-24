@@ -1,19 +1,11 @@
 from datetime import datetime
 import matplotlib.pyplot as plt
-
-
-import numpy as np
 import pandas as pd
-# Imports pyLRT
 import numpy as np
-import subprocess
-import io
 import os
 import re
-import matplotlib
 import shutil
 from abc import ABC, abstractmethod
-
 
 
 class Component(ABC):
@@ -22,13 +14,13 @@ class Component(ABC):
         # Initialize any common attributes here if needed
         super().__init__()
 
-
     # The basic Idea is that every atmosphric component creates a list of lines that are then set as an input to the
     # libradtran input file. This is done by the gen_optical_params function.
     @abstractmethod
     def gen_lrt_input(self):
         """Generate input file for libRadtran."""
         pass
+
 
 class MIEAerosol(Component):
     def __init__(self):
@@ -45,6 +37,7 @@ class OPACAerosol(Component):
         self.lines_l.append('aerosol_default')
         self.lines_l.append(f'aerosol_species_file {self.opac_species}')
         return self.lines_l
+
 
 class Cloud(Component):
 
@@ -65,8 +58,6 @@ class Cloud(Component):
         if self.ssa:
             self.lines_l.append(f'wc_modify ssa set {self.ssa}')
         return self.lines_l
-
-
 
 
 class Solver(ABC):
@@ -104,6 +95,7 @@ class DisortSolver(Solver):
             self.lines_l.append('print_disort_info 1 3 5')
         return self.lines_l
 
+
 class MysticSolver(Solver):
     def __init__(self, mc_photons, mc_vroom, mc_polarisation=None, mc_escape=True):
         """
@@ -128,7 +120,6 @@ class MysticSolver(Solver):
         self.mc_vroom = mc_vroom
         self.mc_escape = mc_escape
 
-
     def gen_lrt_input(self):
         self.lines_l = []
         self.lines_l.append(f'rte_solver {self.solver_type}')
@@ -139,6 +130,7 @@ class MysticSolver(Solver):
         self.lines_l.append(f'mc_escape {lrt_bool_to_str(self.mc_escape)}')
 
         return self.lines_l
+
 
 def lrt_bool_to_str(var):
     return 'on' if var else 'off'
@@ -236,6 +228,7 @@ class RPVSurface(Surface):
             self.lines_l.append(f'brdf_rpv scale {self.scale}')
         return self.lines_l
 
+
 class RossLiSurface(Surface):
     def __init__(self, iso, vol, geo):
         super().__init__(surface_type='rossli')
@@ -251,7 +244,6 @@ class RossLiSurface(Surface):
         return self.lines_l
 
 
-
 class LibRadPy:
     # default constructor
     def __init__(self, path, outpath, default_installation=True):
@@ -261,14 +253,14 @@ class LibRadPy:
         self.skip = False
         self.default_installation = default_installation
 
-    def write_input_file(self, path, lines, file_name, quiet = True):
+    def write_input_file(self, path, lines, file_name, quiet=True):
         with open(os.path.join(path, file_name), 'w') as f:
             for line in lines:
                 f.write(line + '\n')
             if quiet:
                 f.write('quiet\n')
 
-    def gen_lrt_input(self, scene, solver, eval_pts, time_stamp = False):
+    def gen_lrt_input(self, scene, solver, eval_pts, time_stamp=False):
         lines = []
         if time_stamp:
             now = datetime.now()
@@ -300,7 +292,7 @@ class LibRadPy:
 
         # First generate the scenario
         if scenario_name:
-            scenario_dir = os.path.join(scenarios_path,'lrt', scenario_name)
+            scenario_dir = os.path.join(scenarios_path, 'lrt', scenario_name)
             if not os.path.exists(scenario_dir):
                 print("Scenario Folder doesn't exist!")
                 os.chdir(cwd)
@@ -309,14 +301,14 @@ class LibRadPy:
                 print("Scenario exists!")
             output_file_scenario = os.path.join(scenario_dir, output_file)
             shutil.copy(input_file, os.path.join(self.path, 'examples'))
-            examples_run_file =  os.path.join(self.path, 'examples', 'UVSPEC_IO_AUTO.INP')
+            examples_run_file = os.path.join(self.path, 'examples', 'UVSPEC_IO_AUTO.INP')
             command = UVSPEC_COMMAND + examples_run_file + '> ' + output_file_scenario
             # command = UVSPEC_COMMAND + examples_run_file
             output = os.popen(command).read()
             print(output)
             os.chdir(cwd)
 
-    def read_output_intensity_new(self, mu_vec, file_name='uvspec_output.out', print_status = True):
+    def read_output_intensity_new(self, mu_vec, file_name='uvspec_output.out', print_status=True):
         if print_status:
             print("Reading Outputs from file:", file_name)
         N = len(mu_vec)
@@ -341,14 +333,13 @@ class LibRadPy:
         scale_val = np.median(radiance_values[valid_indices, 2] / radiance_values_disort[valid_indices, 1])
         return radiance_values[:, 2:], radiance_values[:, 1], header_params, scale_val
 
-
     def read_out_mystic(self):
         file_name = 'uvspec_output.out'
         with open(file_name) as f:
             lines = f.readlines()
             return (lines[0].split())[1]
 
-    def read_rad_mystic(self, mu, phi, zout='BOA',scale = 1.0):
+    def read_rad_mystic(self, mu, phi, zout='BOA', scale=1.0):
         # in libradtran this file name is unchangable
         radiance_mat = np.zeros((len(mu), len(phi)))
         # TODO Currently only supports TOA or BOA with the 49 layer case
@@ -358,11 +349,11 @@ class LibRadPy:
             examples_path = os.path.join(self.path, 'examples')
             file_name = f"mc{max([int(f.split('mc')[1].split('.')[0]) for f in os.listdir(examples_path) if f.startswith('mc') and f.endswith('.rad') and f.split('mc')[1].split('.')[0].isdigit()])}.rad"
         cols = ['x[m]', 'y[m]', 'vza', 'vaa', 'asa', 'rad_direct', 'rad_diffuse', 'rad_escape']
-        df = pd.read_table(os.path.join(self.path, 'examples', file_name), sep='\s+', header=None, names=cols, index_col=False)
+        df = pd.read_table(os.path.join(self.path, 'examples', file_name), sep='\s+', header=None, names=cols,
+                           index_col=False)
         for ii in range(len(phi)):
             radiance_mat[:, ii] = df['rad_escape'][df['vaa'] == phi[ii]].to_numpy() * scale
         return radiance_mat
-
 
 
 def array_to_str(num_arr):
@@ -415,7 +406,6 @@ def polar_plotter(phi, mu, radiance, title_str="", direction='up', vmin=None, vm
     # plt.show()
 
 
-
 def find_phrase_lines(file_name, phrase):
     with open(file_name) as f:
         lines = f.readlines()
@@ -436,7 +426,6 @@ def find_header_lines(file_name, mu):
             scroll_var = float(row_split[0]) - mu[-ii] < 1e-5
             ii += 1
             n_rows -= 1
-
 
 
 class LongTable:
