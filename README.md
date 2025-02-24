@@ -24,7 +24,7 @@ scenarios_path = **path to scenarios directoryt**
 ### 2. Creating a Scene
 There are 2 ways to setup a scenario:
 * Through libradtran, The RTPINN package includes a wrapper for the libradtran simulator (libradpy) through it you can build scenario in libradtran and then parse them as RTPINN scenarios.
-An example for a scenario setup is shown in the new_update_lrt.py file, which will run the libradtran Disort simulation and 
+An example for a scenario setup is shown in the `new_update_lrt.py` file, which will run the libradtran Disort simulation and 
 save the matching scene for the RTPINN code.
 * Another approach is through a custom file, where the user can define the parameters of the scenario in a file and use it to setup the simulation.
 by utilizing the custom file the user directly sets the RTE parameters, phase function coefficients and brdf parameters etc
