@@ -1,2 +1,0 @@
-,model_name,hidden_layers,neurons,residual_parameter,activation,n_mode,load_model,save_model,retrain
-0,sza_45_continental_polluted_02_1e5,10,50,1,tanh,16,no model,True,False
