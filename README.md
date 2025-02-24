@@ -17,9 +17,9 @@ include the figures path where figures will be saved, the Scenarios path which w
 run and the Libradtran path which is the path to the libradtran installation (currently the code supports Libradtran scenarios and tabular scene description).
 ```ini
 [PATHS]
-lrt_path = **path to libRadtran**
-figs_path = **path to save figures**
-scenarios_path = **path to scenarios directoryt**
+lrt_path = /path/to/libradtran/dir
+figs_path = /path/to/figures/dir
+scenarios_path = /path/to/scenarios/dir
 ```
 ### 2. Creating a Scene
 There are 2 ways to setup a scenario:
@@ -30,13 +30,14 @@ save the matching scene for the RTPINN code.
 by utilizing the custom file the user directly sets the RTE parameters, phase function coefficients and brdf parameters etc
 consider the default example for the file formats.
 
-### Adjusting LibRadtran
+### 3. Adjusting LibRadtran
 
 The RTPINN code integraiton with Libradtran is based on the print inputs option of DISORT. 
 The code will parse the inputs and outputs of the DISORT simulation to extract the necessary parameters for the RTPINN code.
 Sadly the numerical precision set in the function by default isn't sufficient for correct calculations. so in order to adjust please 
 switch the c_print_inputs funciton in the the CDISORT.C file of libradtran to the one apearing in libradtran_adjustments.txt 
 
+**TODO: add `.patch`**
 
 
 
