@@ -30,7 +30,7 @@ def plot_scenario(tr_pr,model_pr, color,label,tau,ax = None):
     if ax == None:
         ax = plt
     solver = rtpinn.RTPINN(tr_pr, model_pr, verbose=False)
-    model = solver.solve_rte(model_pr,print_bool=False)
+    model = solver.solve_rte(model_pr)
     model = model.to(dev)
     scenario_path = os.path.join(os.path.join(rtpinn.scenarios_path, 'lrt'), tr_pr['scenario_name'])
     lrt_results = np.load(os.path.join(scenario_path, 'disort_output_file.npz'))
@@ -93,9 +93,9 @@ for ind_tau,tau in enumerate(['TOA','BOA']):
         # The parameters for the network
         model_pr = {
             "model_name": scenes[ind_s],
-            "hidden_layers": 8,  # 1:8 22:12
-            "neurons": 30,  # 1:30 31:30
-            "residual_parameter": 1,
+            "hidden_layers": 8, 
+            "neurons": 30, 
+            "res
             "activation": "tanh",
             "n_mode": 1,
             'load_model': scenes[ind_s],
@@ -114,11 +114,7 @@ plt.show()
 
 ###Second Figure *********************************************************
 
-#set path
-# lrt_path = '/home/shai/Software/RT/debuLRT/libRadtran-2.0.4/' #For PC
-# # lrt_path = '/data/cloudnn/debug/libRadtran-2.0.4/' #For Server
-# martin_path = "/home/szucker/Dropbox/cloud-shared-files/matlabCode/Martin4MartinIntensity/"
-### Make the plot
+
 
 scenes = ['cod_7_sza_0_cloud_02','cod_10_sza_0_cloud_02','cod_15_sza_0_cloud_02']
 models = [scene + '_1e5' for scene in scenes]
@@ -155,9 +151,9 @@ for ind_tau,tau in enumerate(['TOA','BOA']):
         # The parameters for the network
         model_pr = {
             "model_name": models[ind_s],
-            "hidden_layers": 8,  # 1:8 22:12
-            "neurons": 30,  # 1:30 31:30
-            "residual_parameter": 1,  # Use this one Shai!
+            "hidden_layers": 8, 
+            "neurons": 30, 
+            "residual_parameter": 1,  
             "activation": "tanh",
             "n_mode": 1,
             'load_model': models[ind_s],
@@ -210,14 +206,14 @@ for scenario_i, scenario in enumerate(scenario_names):
             "scaling_factor": 1,
             "N_S": 16,
             "N_R": 16,
-            "scenario_type": "lrt",  # lrt or Markov Chain
+            "scenario_type": "lrt", 
             "scenario_name": scenario,
             "save_results": True,
         }
         model_pr = {
             "model_name": f"{scenario}_{n_points}",
-            "hidden_layers": 8,  # 1:8 22:12
-            "neurons": 30,  # 1:30 31:30
+            "hidden_layers": 8, 
+            "neurons": 30, 
             "residual_parameter": 1,
             "activation": "tanh",
             "n_mode": nmode[scenario_i],
@@ -226,9 +222,7 @@ for scenario_i, scenario in enumerate(scenario_names):
             'retrain': False,
         }
         solver = rtpinn.RTPINN(tr_pr, model_pr, verbose=False)
-        # print current directory path
-        # print(os.getcwd())
-        model = solver.solve_rte(model_pr, print_bool=False)
+        model = solver.solve_rte(model_pr)
         scenario_path = os.path.join(os.path.join(rtpinn.scenarios_path, 'lrt'), scenario)
         lrt_results = np.load(os.path.join(scenario_path, 'disort_output_file.npz'))
         mu_vec = lrt_results['mu']
@@ -265,9 +259,6 @@ plt.figure(figsize=(10, 6))
 scene_l = ['rpv', 'rossli', 'lambertian']
 label_l = ['RPV', 'Ross-Li', 'Lambertian']
 color_vec = ['red', 'salmon', 'blue', 'cyan', 'green', 'limegreen']
-# scene_l = ['rpv']
-# label_l = ['RPV']
-# color_vec = ['red','green']
 color_ind = -1
 for ind_s, scene in enumerate(scene_l):
     for phi in [45, 135]:
@@ -314,9 +305,9 @@ for ind_s, scene in enumerate(scene_l):
         # The parameters for the network
         model_pr = {
             "model_name": f"sza_45_{scene}_paper_45",
-            "hidden_layers": 12,  # 1:8 22:12
-            "neurons": 50,  # 1:30 31:30
-            "residual_parameter": 1,  # Use this one Shai!
+            "hidden_layers": 12, 
+            "neurons": 50, 
+            "residual_parameter": 1,  
             "activation": "tanh",
             "n_mode": 16,
             'load_model': f"sza_45_{scene}_paper_45",

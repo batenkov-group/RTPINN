@@ -39,5 +39,36 @@ switch the c_print_inputs funciton in the the CDISORT.C file of libradtran to th
 
 **TODO: add `.patch`**
 
+### 4. Running RTPINN
+
+The `solveRTPINN.py` trains the physics informed Neural Network according to a specific scene, in order to train the network 
+the user needs to provide the training properties dictionary which describes the scene and training process, and the model properties dictionary which describes the neural network itself.
+
+### Citation
+
+If you use this code in your research, please cite the following paper:
+
+> **Shai Zucker, Dmitry Batenkov, and Michal Segal Rozenhaimer.**  
+> *Physics-informed neural networks for modeling atmospheric radiative transfer.*  
+> Journal of Quantitative Spectroscopy and Radiative Transfer, Vol. 331, 2025, 109253.  
+> [https://doi.org/10.1016/j.jqsrt.2024.109253](https://doi.org/10.1016/j.jqsrt.2024.109253)  
+
+BibTeX entry:
+```bibtex
+@article{ZUCKER2025109253,
+  title = {Physics-informed neural networks for modeling atmospheric radiative transfer},
+  journal = {Journal of Quantitative Spectroscopy and Radiative Transfer},
+  volume = {331},
+  pages = {109253},
+  year = {2025},
+  issn = {0022-4073},
+  doi = {https://doi.org/10.1016/j.jqsrt.2024.109253},
+  url = {https://www.sciencedirect.com/science/article/pii/S0022407324003601},
+  author = {Shai Zucker and Dmitry Batenkov and Michal Segal Rozenhaimer},
+  keywords = {Radiative transfer equation, Physics-informed neural networks, Atmospheric modeling, Remote sensing, Aerosols, Clouds}
+}
+```
+
+
 
 

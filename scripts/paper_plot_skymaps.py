@@ -98,7 +98,7 @@ def main():
             "scaling_factor": 1,
             "N_S": 16,
             "N_R": 16,
-            "scenario_type": "lrt",  # lrt or Markov Chain
+            "scenario_type": "lrt",  
             "scenario_name": scene,
             "save_results": True,
             "final_loss": 1,
@@ -107,9 +107,9 @@ def main():
         # The parameters for the network
         model_pr = {
             "model_name": scene + '_1e5_2',
-            "hidden_layers": 12,  # 1:8 22:12
-            "neurons": 100,  # 1:30 31:30
-            "residual_parameter": 1,  # Use this one Shai!
+            "hidden_layers": 12, 
+            "neurons": 100, 
+            "residual_parameter": 1, 
             "activation": "tanh",
             "n_mode": 1,
             'load_model': scene + '_1e5_2',  # no model for new sceanario

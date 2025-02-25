@@ -1,31 +1,19 @@
 import os
-
-# # # number in CUDA_VISIBLE_DEVICES chooses gpu
-# os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-# os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 import matplotlib.pyplot as plt
 import numpy as np
 from pinns import rtpinn
 import torch.utils.data
 import configparser
 
-# set path
-# lrt_path = '/home/shai/Software/RT/debuLRT/libRadtran-2.0.4/' #For PC
-# lrt_path = '/data/cloudnn/debug/libRadtran-2.0.4/' #For Server
-# martin_path = "/home/szucker/Dropbox/cloud-shared-files/matlabCode/Martin4MartinIntensity/"
 config = configparser.ConfigParser()
 config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'init_file.ini')
 config.read(config_path)
 lrt_path = config['PATHS']['lrt_path']
 figs_path = config['PATHS']['figs_path']
-plt.rcParams.update({'font.size': 18})  # Set default font size for all elements
+plt.rcParams.update({'font.size': 18})  
 
-# set default tensor type and sett
-# torch.set_default_tensor_type(torch.DoubleTensor)
-# torch.set_default_dtype(torch.float32)
+
 torch.manual_seed(42)
-# torch.cuda.set_device(1)
 if torch.cuda.is_available():
     dev = torch.device("cuda:0")
 else:
@@ -33,10 +21,9 @@ else:
 
 print(dev)
 
-### This is the main script for the forward operation
 
 
-# The parameters for the training process including the atmospheric conditions, training points and loss
+
 brdf_dict = {
     'type': 'rossli',
     'iso': 0.3,
@@ -44,16 +31,7 @@ brdf_dict = {
     'geo': 0.023,
     'hotspot': False
 }
-# brdf_dict = {
-#     'type': 'rpv',
-#     'rho0': 0.076,
-#     'k': 0.648,
-#     'theta': -0.290,
-#     'sigma': 0,
-#     't1': 0,
-#     't2': 0,
-#     'scale': 1
-# }
+
 tr_pr = {
     'sampling_method': "sobol",
     'sampling_seed': 21,
@@ -101,14 +79,12 @@ if (tr_pr['scenario_type'] == "lrt"):
     avg_radiance_pinn = rtpinn.plot_heatmap(model, lrt_results['z_alt'], lrt_results['mu'],
                                         lrt_results['z_tau'],
                                         scale=lrt_results['scale'], correction=correction_total, tau_star=tau_star)
-    # avg_radiance_pinn = rtpinn.plot_heatmap(model, lrt_results['z_alt'], lrt_results['mu'], lrt_results['z_tau']/float(solver.total_optical_depth[-1]),scale=lrt_results['scale'])
-    # plt.colorbar(label=r"$I(\tau,\mu)$ [$mW/(m^2 nm\cdot sr)]$")
+    
     plt.ylabel(r'Altitude [km]')
     plt.xlabel(r'$\mu$')
     plt.savefig(f"{figs_path}/{model_pr['model_name']}_HeatMappinn.pdf", bbox_inches='tight')
     plt.show()
     error = np.abs((avg_radiance_pinn - lrt_results['avg_radiance']) / lrt_results['avg_radiance']) * 100
-    # error = np.clip(error, 0, 10)
     fig, ax = plt.subplots()
 
     # Create the contourf plot
@@ -149,16 +125,9 @@ if (tr_pr['scenario_type'] == "lrt"):
     ax.set_xlabel(r'$\mu$')
     ax.set_ylabel(r'Ratio  [\%]')
     plt.colorbar(contour_down, ax=ax, label=r"$Relative\; Error [\%]$")  # Correct way to add a color bar to the plot
-
     plt.savefig(f"{figs_path}/HeatMap_Error_up.png", bbox_inches='tight')
-    # ax.set_title("Error Contour Plot")
     plt.show()
-    # plt.imshow(np.abs((avg_radiance_pinn - lrt_results['avg_radiance'])), cmap='jet', aspect='auto', origin='lower', vmin=0, vmax=10,
-    #            extent=[ lrt_results['mu'].min(),  lrt_results['mu'].max(), lrt_results['z_alt'].min(), lrt_results['z_alt'].max()])
-    # plt.colorbar(label=r"$Error  [mW/m^2sr]$")
-    # plt.ylabel('Altitude [km]')
-    # plt.xlabel(r'mu')
-    # plt.show()
+
 
 
 

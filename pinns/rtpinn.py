@@ -43,6 +43,7 @@ class RTPINN():
         # Define domain and parameter values
         self.domain_values = torch.tensor([[0.00, 1]])
         self.parameters_values = torch.tensor([[-1.0, 1.0]])
+        self.verbose = verbose
 
     def initialize_parameters(self, tr_pr, model_pr):
         """
