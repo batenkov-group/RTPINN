@@ -6,15 +6,33 @@ from matplotlib import pyplot as plt
 import configparser
 
 
+
+"""
+This script is used for scenario generation and integrates with libRadtran, as detailed in the README file. 
+It utilizes libRadtran for scenario generation enabled via the DISORT detailed print flag. 
+
+The script automates the creation of libRadtran input files, executes the simulations, and stores scenario 
+details under a specified `scenario_name`. If you prefer to avoid overwriting existing scenarios, set the 
+`scenario_name` to "default."
+
+The wrapper supports both the MYSTIC and DISORT solvers. However, scenario details are only saved for the 
+DISORT solver.
+
+### Usage:
+To generate a specific scenario, modify the parameters in the `run_n_update_scenario` function and execute 
+this script.
+"""
+
+
+
 config = configparser.ConfigParser()
 config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'init_file.ini')
 config.read(config_path)
 lrt_path = config['PATHS']['lrt_path']
 scenarios_path = config['PATHS']['scenarios_path']
 figs_path = config['PATHS']['figs_path']
-default_installation = config.getboolean('VARS', 'default_installation')
 
-def run_n_update_scenario(alt_vec=None, update_scenario = True):
+def run_n_update_scenario(alt_vec=None, save_scenario = True):
     # Solver Parameters
     plot_1d = True
     radiance_mat = None
@@ -51,19 +69,14 @@ def run_n_update_scenario(alt_vec=None, update_scenario = True):
     phi = [0]
 
 
-    lrp_obj = lrp.LibRadPy(lrt_path, outpath=scenarios_path, default_installation=default_installation)
+    lrp_obj = lrp.LibRadPy(lrt_path, outpath=scenarios_path)
 
-    # cod = 7
-    comment = f"temp_polluted_clean_8"
+    # Scenario Name
+    comment = ""
+    scenario_name = "temp_scene"
 
-    if len(component_list) > 0:
-        if isinstance(component_list[0], lrp.OPACAerosol):
-            scenario_name = f'{comment}sza_{sza}_{opac_type}_0{round(surface.albedo * 10)}'
-        elif isinstance(component_list[0], lrp.Cloud):
-            scenario_name = f'{comment}sza_{sza}_cloud_0{round(surface.albedo * 10)}'
-
-    # scenario_name = "sunset_green"
-    if update_scenario == False:
+    #if the scenario should be saved then the scenario name is set to default
+    if save_scenario == False:
         scenario_name = "default"
 
     print(scenario_name)
@@ -97,7 +110,7 @@ def run_n_update_scenario(alt_vec=None, update_scenario = True):
                 if not os.path.exists(scenario_dir):
                     os.makedirs(scenario_dir, exist_ok=True)
                 else:
-                    print("Scenario exists!!!")
+                    print("Scenario exists! Overwriting...")
             lrp_obj.write_input_file(path=scenario_dir, lines=lines, file_name = 'UVSPEC_IO_AUTO.INP', quiet=True)
             lrp_obj.run_uvspec(os.path.join(scenario_dir, 'UVSPEC_IO_AUTO.INP'),
                                scenario_name=scenario_name, scenarios_path=scenarios_path)
@@ -128,7 +141,7 @@ def run_n_update_scenario(alt_vec=None, update_scenario = True):
             plt.savefig(os.path.join(figs_path, "radiance_1d_plot.pdf"), bbox_inches='tight')
             plt.show()
 
-    if update_scenario:
+    if save_scenario:
         scenario_path = os.path.join(scenarios_path, 'lrt', scenario_name)
         np.savez(os.path.join(scenario_path, 'disort_output_file.npz'), radiance_mat=z_rad,
                  avg_radiance=z_avg_rad, mu=mu, phi=phi, header_params=header_params,

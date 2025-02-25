@@ -77,7 +77,7 @@ class DisortSolver(Solver):
         """
         :param n_streams: number of streams
         :param disort_intcor: Disort internal correction type, phase is implemented in rtpinn
-        :param print_details: Print detailed output this feature is usful to get the raw inputs of the DISORT solver
+        :param print_details: Print detailed output this feature is needed for scenario generation
 
         """
         # Explicitly pass 'disort' as the solver_type to the parent class
@@ -246,12 +246,12 @@ class RossLiSurface(Surface):
 
 class LibRadPy:
     # default constructor
-    def __init__(self, path, outpath, default_installation=True):
+    def __init__(self, path, outpath, verbose=True):
         self.path = path
         self.outpath = outpath
         self.skip_list = []
         self.skip = False
-        self.default_installation = default_installation
+        self.verbose = verbose
 
     def write_input_file(self, path, lines, file_name, quiet=True):
         with open(os.path.join(path, file_name), 'w') as f:
@@ -260,7 +260,7 @@ class LibRadPy:
             if quiet:
                 f.write('quiet\n')
 
-    def gen_lrt_input(self, scene, solver, eval_pts, time_stamp=False):
+    def gen_lrt_input(self, scene, solver, eval_pts, time_stamp=False,verbose=False):
         lines = []
         if time_stamp:
             now = datetime.now()
@@ -278,38 +278,39 @@ class LibRadPy:
 
         Args:
             input_file (str): The name of the input file.
-            output_file (str): The name of the output file. Defaults to 'uvspec_output.out'.
-            scenario_name (str): The name of the scenario. Defaults to "".
-            scenarios_path (str): The path to the scenarios directory. Defaults to "".
+            output_file (str): The name of the output file.
+            scenario_name (str): The name of the scenario.
+            scenarios_path (str): The path to the scenarios directory.
         """
         cwd = os.getcwd()
         # The LibRadTran works only in a sub directory of the libradtran dir
         os.chdir(os.path.join(self.path, 'examples'))
-        if self.default_installation:
-            UVSPEC_COMMAND = 'uvspec <'
-        else:
-            UVSPEC_COMMAND = '../bin/uvspec <'
+        UVSPEC_COMMAND = 'uvspec <'
 
         # First generate the scenario
         if scenario_name:
             scenario_dir = os.path.join(scenarios_path, 'lrt', scenario_name)
+            # the code assumes that a scenario was previously created
             if not os.path.exists(scenario_dir):
-                print("Scenario Folder doesn't exist!")
+                if self.verbose:
+                    print("Scenario Folder doesn't exist!")
                 os.chdir(cwd)
                 return 0
             else:
-                print("Scenario exists!")
+                if self.verbose:
+                    print("Scenario exists!")
             output_file_scenario = os.path.join(scenario_dir, output_file)
             shutil.copy(input_file, os.path.join(self.path, 'examples'))
             examples_run_file = os.path.join(self.path, 'examples', 'UVSPEC_IO_AUTO.INP')
             command = UVSPEC_COMMAND + examples_run_file + '> ' + output_file_scenario
             # command = UVSPEC_COMMAND + examples_run_file
             output = os.popen(command).read()
-            print(output)
+            if self.verbose:
+                print(output)
             os.chdir(cwd)
 
-    def read_output_intensity_new(self, mu_vec, file_name='uvspec_output.out', print_status=True):
-        if print_status:
+    def read_output_intensity_new(self, mu_vec, file_name='uvspec_output.out'):
+        if self.verbose:
             print("Reading Outputs from file:", file_name)
         N = len(mu_vec)
         disort_output_line = find_phrase_lines(file_name, ' *********  I N T E N S I T I E S  *********')
@@ -342,7 +343,6 @@ class LibRadPy:
     def read_rad_mystic(self, mu, phi, zout='BOA', scale=1.0):
         # in libradtran this file name is unchangable
         radiance_mat = np.zeros((len(mu), len(phi)))
-        # TODO Currently only supports TOA or BOA with the 49 layer case
         if zout == 'BOA':
             file_name = 'mc.rad'
         else:
@@ -414,19 +414,6 @@ def find_phrase_lines(file_name, phrase):
                 return ind
 
 
-def find_header_lines(file_name, mu):
-    with open(file_name) as f:
-        lines = f.readlines()
-        n_rows = len(lines) - 1
-        scroll_var = True
-        ii = 1
-        while scroll_var:
-            row_split = lines[n_rows].split(' ')
-            row_split = [x for x in row_split if len(x) > 0]
-            scroll_var = float(row_split[0]) - mu[-ii] < 1e-5
-            ii += 1
-            n_rows -= 1
-
 
 class LongTable:
     def __init__(self):
@@ -461,23 +448,6 @@ class LongTable:
         self.asymm_factor.append(line_list[8])
 
 
-#         self.temperture.append(line_list[1])
-#         self.temperture_final_layer = shrt_tbl_params[9]
-
-class ShortTable:
-    def __init__(self, shrt_tbl_params):
-        self.n_layer = shrt_tbl_params[0]
-        self.optical_depth = shrt_tbl_params[1]
-        self.ssa = shrt_tbl_params[2]
-        self.dm_separated_fraction = shrt_tbl_params[3]
-        self.dm_optical_depth = shrt_tbl_params[4]
-        self.dm_total_optical_depth = shrt_tbl_params[5]
-        self.dm_ssa = shrt_tbl_params[6]
-        self.asymm_factor = shrt_tbl_params[7]
-        self.temperture_1 = shrt_tbl_params[8]
-        self.temperture_final_layer = shrt_tbl_params[9]
-
-
 class PhaseTable:
     def __init__(self, phase_tbl_params=[]):
         self.layers = []
@@ -510,7 +480,6 @@ class DisortStruct:
                                          '         Depth     Depth    Albedo    Fraction     Depth     Depth    Albedo   Factor')
         disort_avg_line = find_phrase_lines(output_file,
                                             ' ******** AZIMUTHALLY AVERAGED INTENSITIES ( at polar quadrature angles ) *******')
-        # self.phase_table = PhaseTable()
         with open(output_file, 'r') as f:
             file_content = f.read()
             re_result = re.search(r'(\d+) User polar angle cosines', file_content)

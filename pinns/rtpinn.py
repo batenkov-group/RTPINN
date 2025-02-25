@@ -30,8 +30,8 @@ scenarios_path = config['PATHS']['scenarios_path']
 
 
 class RTPINN():
-    def __init__(self, tr_pr, model_pr, print_bool=True, initiallize_scenario=True):
-        if print_bool:
+    def __init__(self, tr_pr, model_pr, verbose=True, initiallize_scenario=True):
+        if verbose:
             pprint.pprint(tr_pr)
 
         self.tr_pr = tr_pr
@@ -976,11 +976,11 @@ class RTPINN():
         return torch.cat((x_coll_train[:, 0].repeat_interleave(len(mu_prime)).unsqueeze(1),
                           mu_prime.repeat(len(x_coll_train[:, 0])).unsqueeze(1)), dim=1)
 
-    def solve_rte(self, model_pr, print_bool=True):
+    def solve_rte(self, model_pr):
         """
         Solve the Radiative Transfer Equation (RTE) by training or loading a model.
         """
-        model = self.load_or_initialize_model(model_pr, print_bool)
+        model = self.load_or_initialize_model(model_pr)
 
         if model_pr['load_model'] == "no model" or model_pr['retrain']:
             # Prepare training data
@@ -988,7 +988,8 @@ class RTPINN():
 
             # Train model
             start = time.time()
-            print("Fitting Model")
+            if self.verbose:
+                print("Fitting Model")
             final_error_train = self.train_model(model, model_pr, x_coll_train, x_b_train, u_b_train)
             self.display_training_time(start)
             model = model.eval()
@@ -999,17 +1000,16 @@ class RTPINN():
 
         return model
 
-    def load_or_initialize_model(self, model_pr, print_bool):
+    def load_or_initialize_model(self, model_pr):
         """
         Load or initialize the model based on the model properties.
         :param model_pr: model properties dictionary
-        :param print_bool: determine whether to print the model properties or not
         :return:
         """
         if model_pr['load_model'] == "no model" or model_pr['retrain']:
             input_dimensions = len(self.parameters_values) + 1
             output_dimension = self.output_dimension
-            if print_bool:
+            if self.verbose:
                 print('************model properties************')
                 pprint.pprint(model_pr)
 
@@ -1025,11 +1025,11 @@ class RTPINN():
                 init_xavier(model)
 
             if torch.cuda.is_available():
-                if print_bool:
+                if self.verbose:
                     print("Loading model on GPU")
                 model.cuda(device=dev)
         else:
-            if print_bool:
+            if self.verbose:
                 print("model name:", model_pr['load_model'])
             model = self.load_model(model_pr)
 

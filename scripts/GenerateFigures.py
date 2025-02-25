@@ -22,7 +22,6 @@ config.read(config_path)
 lrt_path = config['PATHS']['lrt_path']
 scenarios_path = config['PATHS']['scenarios_path']
 figs_path = config['PATHS']['figs_path']
-default_installation = config.getboolean('VARS', 'default_installation')
 
 
 # plot_function
@@ -30,7 +29,7 @@ default_installation = config.getboolean('VARS', 'default_installation')
 def plot_scenario(tr_pr,model_pr, color,label,tau,ax = None):
     if ax == None:
         ax = plt
-    solver = rtpinn.RTPINN(tr_pr, model_pr,print_bool=False)
+    solver = rtpinn.RTPINN(tr_pr, model_pr, verbose=False)
     model = solver.solve_rte(model_pr,print_bool=False)
     model = model.to(dev)
     scenario_path = os.path.join(os.path.join(rtpinn.scenarios_path, 'lrt'), tr_pr['scenario_name'])
@@ -226,7 +225,7 @@ for scenario_i, scenario in enumerate(scenario_names):
             'save_model': False,
             'retrain': False,
         }
-        solver = rtpinn.RTPINN(tr_pr, model_pr, print_bool=False)
+        solver = rtpinn.RTPINN(tr_pr, model_pr, verbose=False)
         # print current directory path
         # print(os.getcwd())
         model = solver.solve_rte(model_pr, print_bool=False)
