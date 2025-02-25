@@ -1,0 +1,233 @@
+void c_print_inputs (disort_state* ds,
+                     double*       dtaucpr,
+                     int           scat_yes,
+                     int           deltam,
+                     int           corint,
+                     double*       flyr,
+                     int           lyrcut,
+                     double*       oprim,
+                     double*       tauc,
+                     double*       taucpr) {
+  register int iq, iu, j, k, lc, lu;
+
+  /* fprintf(stdout,"\n\n" */
+  /*                " ****************************************************************************************************\n" */
+  /*                " DISORT: %s\n" */
+  /*                " ****************************************************************************************************\n", */
+  /*                ds->header); */
+
+  /*CE:  ds->header is not initialized at this point, therefore removed it from fprintf */
+
+  fprintf (stdout,
+           "\n\n"
+           " ****************************************************************************************************\n"
+           " DISORT: \n"
+           " ****************************************************************************************************\n");
+  fprintf (stdout, "\n No. streams =%4d     No. computational layers =%4d\n", ds->nstr, ds->nlyr);
+
+  if (ds->flag.ibcnd != SPECIAL_BC) {
+    fprintf (stdout, "%4d User optical depths :", ds->ntau);
+    for (lu = 1; lu <= ds->ntau; lu++) {
+      fprintf (stdout, "%10.4f", UTAU (lu));
+      if (lu % 10 == 0) {
+        fprintf (stdout, "\n                          ");
+      }
+    }
+    fprintf (stdout, "\n");
+  }
+
+  if (!ds->flag.onlyfl) {
+    fprintf (stdout, "%4d User polar angle cosines :", ds->numu);
+    for (iu = 1; iu <= ds->numu; iu++) {
+      fprintf (stdout, "%9.5f", UMU (iu));
+      if (iu % 10 == 0) {
+        fprintf (stdout, "\n                               ");
+      }
+    }
+    fprintf (stdout, "\n");
+  }
+
+  if (!ds->flag.onlyfl && ds->flag.ibcnd != SPECIAL_BC) {
+    fprintf (stdout, "%4d User azimuthal angles :", ds->nphi);
+    for (j = 1; j <= ds->nphi; j++) {
+      fprintf (stdout, "%9.2f", PHI (j));
+      if (j % 10 == 0) {
+        fprintf (stdout, "n                            ");
+      }
+    }
+    fprintf (stdout, "\n");
+  }
+
+  if (!ds->flag.planck || ds->flag.ibcnd == SPECIAL_BC) {
+    fprintf (stdout, " No thermal emission\n");
+  }
+
+  if (ds->flag.spher == TRUE) {
+    fprintf (stdout, " Pseudo-spherical geometry invoked\n");
+  }
+
+  if (ds->flag.general_source == TRUE) {
+    fprintf (stdout, " Calculation with general source term\n");
+  }
+
+  if (ds->flag.ibcnd == GENERAL_BC) {
+    fprintf (stdout, " Boundary condition flag: ds.flag.ibcnd = GENERAL_BC\n");
+    fprintf (stdout,
+             "    Incident beam with intensity =%11.3e and polar angle cosine = %8.5f  and azimuth angle =%7.2f\n",
+             ds->bc.fbeam,
+             ds->bc.umu0,
+             ds->bc.phi0);
+    fprintf (stdout, "    plus isotropic incident intensity =%11.3e\n", ds->bc.fisot);
+
+    if (ds->bc.fluor > 0.0) {
+      fprintf (stdout, "    Bottom isotropic exiting intensity =%11.3e\n", ds->bc.fluor);
+    }
+    if (ds->flag.lamber) {
+      fprintf (stdout, "    Bottom albedo (Lambertian) =%8.4f\n", ds->bc.albedo);
+    } else {
+      fprintf (stdout, "    Bidirectional reflectivity at bottom\n");
+    }
+
+    if (ds->flag.planck) {
+      fprintf (stdout, "    Thermal emission in wavenumber interval :%14.4f%14.4f\n", ds->wvnmlo, ds->wvnmhi);
+      fprintf (stdout,
+               "    Bottom temperature =%10.2f    Top temperature =%10.2f    Top emissivity =%8.4f\n",
+               ds->bc.btemp,
+               ds->bc.ttemp,
+               ds->bc.temis);
+    }
+  } else if (ds->flag.ibcnd == SPECIAL_BC) {
+    fprintf (stdout, " Boundary condition flag: ds.flag.ibcnd = SPECIAL_BC\n");
+    fprintf (stdout, "    Isotropic illumination from top and bottom\n");
+    fprintf (stdout, "    Bottom albedo (Lambertian) =%8.4f\n", ds->bc.albedo);
+  } else {
+    c_errmsg ("Unrecognized ds.flag.ibcnd", DS_WARNING);
+  }
+
+  if (deltam) {
+    fprintf (stdout, " Uses delta-M method\n");
+  } else {
+    fprintf (stdout, " Does not use delta-M method\n");
+  }
+
+// S.Z edited this line so it will print the full phase function when the correction is used
+  if (corint) {
+    fprintf (stdout, " Uses TMS/IMS method\n");
+    if (!ds->flag.old_intensity_correction) {
+      fprintf(stdout, "\n Phase Function Moments Table:\n");
+      fprintf(stdout, " lvscost ");
+      for (int i = 0; i < ds->nphase; i++) {
+        fprintf(stdout, " %20.16f", ds->mu_phase[i]);
+      }
+      fprintf(stdout, "\n");
+      for (int j = 0; j < ds->nlyr; j++) {
+        fprintf(stdout, "%5d ", j);
+        for (int i = 0; i < ds->nphase; i++) {
+          fprintf(stdout, "%20.16f ", ds->phase[i + j * ds->nphase]);
+        }
+        fprintf(stdout, "\n");
+      }
+      fprintf(stdout, "\n");
+    }
+  } else {
+    fprintf (stdout, " Does not use TMS/IMS method\n");
+  }
+// S.Z Change is up to here
+
+  if (ds->flag.ibcnd == SPECIAL_BC) {
+    fprintf (stdout, " Calculate albedo and transmissivity of medium vs. incident beam angle\n");
+  } else if (ds->flag.onlyfl) {
+    fprintf (stdout, " Calculate fluxes only\n");
+  } else {
+    fprintf (stdout, " Calculate fluxes and intensities\n");
+  }
+
+  fprintf (stdout, " Relative convergence criterion for azimuth series =%11.2e\n", ds->accur);
+
+  if (lyrcut) {
+    fprintf (stdout, " Sets radiation = 0 below absorption optical depth 10\n");
+  }
+
+  /*
+   * Print layer variables (to read, skip every other line)
+   */
+  if (ds->flag.planck) {
+    fprintf (stdout, "\n                                     <------------- Delta-M --------------->");
+    fprintf (stdout, "\n                   Total    Single                           Total    Single");
+    fprintf (stdout, "\n       Optical   Optical   Scatter   Separated   Optical   Optical   Scatter    Asymm");
+    fprintf (stdout, "\n         Depth     Depth    Albedo    Fraction     Depth     Depth    Albedo   Factor   Temperature\n");
+  } else {
+    fprintf (stdout, "\n                                     <------------- Delta-M --------------->");
+    fprintf (stdout, "\n                   Total    Single                           Total    Single");
+    fprintf (stdout, "\n       Optical   Optical   Scatter   Separated   Optical   Optical   Scatter    Asymm");
+    fprintf (stdout, "\n         Depth     Depth    Albedo    Fraction     Depth     Depth    Albedo   Factor\n");
+  }
+
+  for (lc = 1; lc <= ds->nlyr; lc++) {
+
+    if (ds->flag.planck) {
+      fprintf (stdout,
+               "%4d%20.16f%20.16f%20.16f%22.16f%20.16f%20.16f%20.16f%19.16f%24.16f\n",
+               lc,
+               DTAUC (lc),
+               TAUC (lc),
+               SSALB (lc),
+               FLYR (lc),
+               DTAUCPR (lc),
+               TAUCPR (lc),
+               OPRIM (lc),
+               PMOM (1, lc),
+               TEMPER (lc - 1));
+    } else {
+      fprintf (stdout,
+           "%4d%20.16f%20.16f%20.16f%22.16f%20.16f%20.16f%20.16f%19.16f\n",
+           lc,
+           DTAUC (lc),
+           TAUC (lc),
+           SSALB (lc),
+           FLYR (lc),
+           DTAUCPR (lc),
+           TAUCPR (lc),
+           OPRIM (lc),
+           PMOM (1, lc));
+        }
+  }
+  if (ds->flag.planck) {
+    fprintf (stdout,
+             "                                                                                     %14.3f\n",
+             TEMPER (ds->nlyr));
+  }
+
+  if (ds->flag.prnt[4] && scat_yes) {
+    fprintf (stdout, "\n Number of Phase Function Moments = %5d\n", ds->nmom + 1);
+    fprintf (stdout, " Layer   Phase Function Moments\n");
+    for (lc = 1; lc <= ds->nlyr; lc++) {
+      if (SSALB (lc) > 0.) {
+        fprintf (stdout, "%6d", lc);
+        for (k = 0; k <= ds->nmom; k++) {
+          fprintf (stdout, "%20.10f", PMOM (k, lc));
+          if ((k + 1) % 10 == 0) {
+            fprintf (stdout, "\n      ");
+          }
+        }
+        fprintf (stdout, "\n");
+      }
+    }
+  }
+
+  if (ds->flag.general_source == TRUE) {
+    fprintf (stdout, " Calculation with general source term\n");
+    j = 0;
+    for (lc = 1; lc <= ds->nlyr; lc++) {
+      fprintf (stdout, "%4d%10.4f", lc, DTAUC (lc));
+      for (iq = 1; iq <= ds->nstr; iq++) {
+        fprintf (stdout, "%13.6e", GENSRC (j, lc, iq));
+      }
+      fprintf (stdout, "\n");
+    }
+  }
+
+  return;
+}
+
+/*============================= end of c_print_inputs() =================*/

@@ -1,1 +1,12 @@
-/Model/
+Model2/
+Weights/
+Figs/
+__pycache__/
+tests_file.py
+scenarios/
+.DS_Store
+randomseed
+load_weights_save_models.py
+save_paper_models.py
+coef_mat.pt
+init_file.ini
