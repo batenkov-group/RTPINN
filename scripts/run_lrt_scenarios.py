@@ -21,6 +21,16 @@ DISORT solver.
 ### Usage:
 To generate a specific scenario, modify the parameters in the `run_n_update_scenario` function and execute 
 this script.
+From the root directory, run the script with:
+```bash
+PYTHONPATH=. python scripts/run_lrt_scenarios.py
+```
+
+MYSTIC: make sure the user has write permissions to the examples directory:
+```bash
+sudo chmod a+w /usr/local/share/libRadtran/examples
+```
+
 """
 
 
@@ -55,9 +65,12 @@ def run_n_update_scenario(alt_vec=None, save_scenario = True):
     # surface = lrp.RPVSurface(rho0=0.076, k=0.648, theta=-0.290, sigma=0, t1=0, t2=0, scale=1)
 
     # Scene
-    solar_source = "../data/solar_flux/atlas_plus_modtran"
-    atmosphere_profile = "../data/atmmod/afglus.dat"
-    # atmosphere_profile = os.path.join(lrt_path,"data/atmmod/afglus.dat")
+    # solar_source = "../data/solar_flux/atlas_plus_modtran"
+    # atmosphere_profile = "../data/atmmod/afglus.dat"
+    
+    solar_source = os.path.join(lrt_path,"data/solar_flux/atlas_plus_modtran")
+    atmosphere_profile = os.path.join(lrt_path,"data/atmmod/afglus.dat")
+    
     sza = 60
     phi_0 = 0
     scene = lrp.Scene(solar_source=solar_source, atmosphere_profile=atmosphere_profile, sza=sza, phi_0=phi_0,
@@ -69,7 +82,7 @@ def run_n_update_scenario(alt_vec=None, save_scenario = True):
     phi = [0]
 
 
-    lrp_obj = lrp.LibRadPy(lrt_path, outpath=scenarios_path)
+    lrp_obj = lrp.LibRadPy(lrt_path)
 
     # Scenario Name
     comment = ""
@@ -79,7 +92,7 @@ def run_n_update_scenario(alt_vec=None, save_scenario = True):
     if save_scenario == False:
         scenario_name = "default"
 
-    print(scenario_name)
+    print(f"Running scenario: {scenario_name}")
     if alt_vec is None:
         z_tau = ['TOA', 'BOA']
         return_alt = False
@@ -93,24 +106,29 @@ def run_n_update_scenario(alt_vec=None, save_scenario = True):
     z_avg_rad = np.zeros([len(z_tau), len(mu)])
     z_rad = np.zeros([len(z_tau), len(mu), len(phi)])
     mystic_radiance = np.zeros(([len(z_tau), len(mu_lowres), len(phi)]))
+    if scenario_name:
+        scenario_dir = os.path.join(scenarios_path, 'lrt', scenario_name)
+        if not os.path.exists(scenario_dir):
+            os.makedirs(scenario_dir, exist_ok=True)
+        else:
+            print("Scenario exists! Overwriting...")    
     # generate and plot the TOA and BOA radiance
     for x_ind, x in enumerate(alt_vec):
         for method in methods:
             if method == 'mystic':
                 #Load the scale value (since the .spc file is less stable then the .rad)
-                scale = np.load(os.path.join(scenarios_path, 'lrt', scenario_name, 'disort_output_file.npz'))['scale']
+                disort_output = os.path.join(scenarios_path, 'lrt', scenario_name, 'disort_output_file.npz')
+                if not os.path.exists(disort_output):
+                    print(f"Disort output file {disort_output} does not exist! Cannot run mystic!")
+                    continue
+                scale = np.load(disort_output)['scale']
                 solver = lrp.MysticSolver(mc_photons=10e4, mc_vroom=False)
                 eval_pts = lrp.EvalPts(mu=mu_lowres, phi=[0], zout=x)
             elif method == 'disort':
                 solver = lrp.DisortSolver(n_streams=16, disort_intcor="phase")
                 eval_pts = lrp.EvalPts(mu=mu, phi=phi, zout=x)
             lines = lrp_obj.gen_lrt_input(scene, solver, eval_pts, time_stamp=False)
-            if scenario_name:
-                scenario_dir = os.path.join(scenarios_path, 'lrt', scenario_name)
-                if not os.path.exists(scenario_dir):
-                    os.makedirs(scenario_dir, exist_ok=True)
-                else:
-                    print("Scenario exists! Overwriting...")
+    
             lrp_obj.write_input_file(path=scenario_dir, lines=lines, file_name = 'UVSPEC_IO_AUTO.INP', quiet=True)
             lrp_obj.run_uvspec(os.path.join(scenario_dir, 'UVSPEC_IO_AUTO.INP'),
                                scenario_name=scenario_name, scenarios_path=scenarios_path)

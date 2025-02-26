@@ -1,12 +1,25 @@
-Model2/
-Weights/
-Figs/
-__pycache__/
-tests_file.py
-scenarios/
 .DS_Store
-randomseed
-load_weights_save_models.py
-save_paper_models.py
-coef_mat.pt
-init_file.ini
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.env
+.venv/
+env/
+venv/
+*.egg-info/
+dist/
+build/
+.coverage
+.pytest_cache/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
