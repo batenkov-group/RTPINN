@@ -13,7 +13,8 @@
                 "twxs.cmake",             
                 "ms-python.python",
                 "ms-toolsai.jupyter",
-                "donjayamanne.python-environment-manager"
+                "donjayamanne.python-environment-manager",
+                "tomoki1207.pdf",
             ],
             "settings": {
                 "python.defaultInterpreterPath": "/workspaces/RTPINN/.venv/bin/python",
