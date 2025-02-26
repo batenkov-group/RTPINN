@@ -7,7 +7,7 @@ The solution is obtained by optimizing a neural network according to the RTE to 
 
 You can install the requirements by running the following command:
 ```bash
-pip install torch numpy pandas matplotlib scipy sobol-seq
+pip install torch numpy pandas matplotlib scipy sobol-seq xarray ipykernel
 ```
 
 ## Usage
