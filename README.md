@@ -22,8 +22,8 @@ run;
 ```ini
 [PATHS]
 lrt_path = /usr/local/share/libRadtran/
-figs_path = ~/RTPINN_Figures/
-scenarios_path = ~/RTPINN_Scenarios/
+figs_path = /path/to/RTPINN_Figures/
+scenarios_path = /path/to/RTPINN_Scenarios/
 ```
 
 ### 2. Creating a Scene
