@@ -11,9 +11,10 @@ from pinns import rtpinn
 import datetime
 
 if torch.cuda.is_available():
-    dev = torch.device("cuda")
+    dev = torch.device('cuda')   
 else:
-    dev = torch.device("cpu")
+    dev = torch.device('cpu')
+torch.set_default_dtype(torch.float32)
 print(f"Using device: {dev}")
 
 config = configparser.ConfigParser()
@@ -29,7 +30,7 @@ figs_path = config['PATHS']['figs_path']
 def plot_scenario(tr_pr,model_pr, color,label,tau,ax = None):
     if ax == None:
         ax = plt
-    solver = rtpinn.RTPINN(tr_pr, model_pr, verbose=False)
+    solver = rtpinn.RTPINN(tr_pr, model_pr, verbose=False, device=dev)
     model = solver.solve_rte(model_pr)
     model = model.to(dev)
     scenario_path = os.path.join(os.path.join(rtpinn.scenarios_path, 'lrt'), tr_pr['scenario_name'])
@@ -95,7 +96,7 @@ for ind_tau,tau in enumerate(['TOA','BOA']):
             "model_name": scenes[ind_s],
             "hidden_layers": 8, 
             "neurons": 30, 
-            "res
+            "residual_parameter": 1,
             "activation": "tanh",
             "n_mode": 1,
             'load_model': scenes[ind_s],
@@ -221,8 +222,8 @@ for scenario_i, scenario in enumerate(scenario_names):
             'save_model': False,
             'retrain': False,
         }
-        solver = rtpinn.RTPINN(tr_pr, model_pr, verbose=False)
-        model = solver.solve_rte(model_pr)
+        solver = rtpinn.RTPINN(tr_pr, model_pr, verbose=False, device=dev)
+        model = solver.solve_rte(model_pr).cpu()
         scenario_path = os.path.join(os.path.join(rtpinn.scenarios_path, 'lrt'), scenario)
         lrt_results = np.load(os.path.join(scenario_path, 'disort_output_file.npz'))
         mu_vec = lrt_results['mu']
@@ -231,7 +232,7 @@ for scenario_i, scenario in enumerate(scenario_names):
         x_test = np.ones([len(mu_vec), 3]) * 0
         x_test[:, 1] = mu_vec
         x_test[:, 2] = lrt_results['phi'][0]
-        radiance_pinn = model.fourier_sum(torch.Tensor(x_test).float().to(dev))
+        radiance_pinn = model.fourier_sum(torch.Tensor(x_test).float())
         radiance_pinn_np = (radiance_pinn.detach().cpu().numpy() + correction_total) * lrt_results['scale']
         # print(np.abs(lrt_results['radiance_mat'][0,lrt_results['mu'] > 0,0] - radiance_top_pinn[lrt_results['mu'] > 0]))
         error_vec[points_i] = np.mean(np.abs((lrt_results['radiance_mat'][0, lrt_results['mu'] > mu_cutoff, 0] -
@@ -314,7 +315,7 @@ for ind_s, scene in enumerate(scene_l):
             'save_model': False,
             'retrain': False,
         }
-        solver = rtpinn.RTPINN(tr_pr, model_pr)
+        solver = rtpinn.RTPINN(tr_pr, model_pr, verbose=False, device=dev)
         model = solver.solve_rte(model_pr)
         scenario_path = os.path.join(os.path.join(rtpinn.scenarios_path, 'lrt'), tr_pr['scenario_name'])
         lrt_results = np.load(os.path.join(scenario_path, 'disort_output_file.npz'))
