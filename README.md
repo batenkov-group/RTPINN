@@ -1,78 +1,74 @@
 # RTPINN: Radiative Transfer Physics-Informed Neural Network
 
 ## Overview
-RTPINN is an implementation of a Physics-Informed Neural Network (PINN) designed to solve the Radiative Transfer Equation (RTE) in different atmospheric scenarios. The solution is obtained by leveraging both physical laws and training data to produce accurate results, which are useful for atmospheric science, climate modeling, and other domains involving radiative transfer.
+RTPINN is an implementation of a Physics-Informed Neural Network (PINN) designed to solve the Radiative Transfer Equation (RTE) in different atmospheric scenarios.
+The solution is obtained by optimizing a neural network according to the RTE to obtain a physical solution.  
 
 
-You can install the requirements by running:
+You can install the requirements by running the following command:
 ```bash
 pip install torch numpy pandas matplotlib scipy sobol-seq
 ```
 
 ## Usage
 ### 1. Configure Paths
-Edit the file named `init_file.ini` with paths to necessary data directories:
+Edit the file named `init_file.ini` with paths to necessary directories, for a functional run of the code, the paths
+include the figures path where figures will be saved, the Scenarios path which will contain the atmospheric setting of each
+run and the Libradtran path which is the path to the libradtran installation (currently the code supports Libradtran scenarios and tabular scene description).
 ```ini
 [PATHS]
-lrt_path = **path to libRadtran**
-figs_path = **path to save figures**
-scenarios_path = **path to scenarios directoryt**
+lrt_path = /path/to/libradtran/dir
+figs_path = /path/to/figures/dir
+scenarios_path = /path/to/scenarios/dir
 ```
-
-### 2. Instantiate and Train a Model
-To start a new scenario, import and initialize the `RTPINN` class with training and model properties:
-
-```python
-from rtpinn import RTPINN
-
-tr_pr = {
-    'sampling_method': "sobol",
-    'n_coll': 10000,
-    'n_b': 1000,
-    "epochs": 30000,
-    "epochs_adam": 0,
-    "steps_lbfgs": 1,
-    "nmom": 16,
-    "I_0": 1,
-    "scenario_type": "lrt",  # set scenario type either lrt or file
-    "scenario_name": "sza_0_continental_clean_02",
-}
-
-model_pr = {
-    "model_name": "temp",
-    "hidden_layers": 8,
-    "neurons": 30,
-    "activation": "tanh",
-    'load_model': "no model",  # for loading a pretrained model write here the model name
-    'save_model': True,  # to save the model after training according to model_name
-    'retrain': False,  # flag to retrain the model or directly use the pretrained model
-}
-
-rtpinn = RTPINN(tr_pr, model_pr)
-model = rtpinn.solve_rte(model_pr)
-```
-### 2. Setup a scenario
+### 2. Creating a Scene
 There are 2 ways to setup a scenario:
-* Through libradtran, when running a disort simulation using the **full_print_flag** the output can be used to setup a simulation of 
-    the same scenario using the RTPINN model.
-* Through a custom file, where the user can define the parameters of the scenario in a file and use it to setup the simulation.
-    by utilizing the custom file the user directly sets the RTE parameters, phase function coefficients and brdf parameters etc
-    consider the default example for the file formats.
+* Through libradtran, The RTPINN package includes a wrapper for the libradtran simulator (libradpy) through it you can build scenario in libradtran and then parse them as RTPINN scenarios.
+An example for a scenario setup is shown in the `run_lrt_scenarios.py` file, which will run the libradtran Disort simulation and 
+save the matching scene for the RTPINN code.
+* Another approach is through a custom file, where the user can define the parameters of the scenario in a file and use it to setup the simulation.
+by utilizing the custom file the user directly sets the RTE parameters, phase function coefficients and brdf parameters etc
+consider the default example for the file formats.
 
-### 3. Visualize Results
-The script contains functions like `plot_1D` and `plot_heatmap` to visualize the radiance values. You can use these to compare the predicted radiance from the PINN model against benchmarks from `libRadtran`.
+### 3. Adjusting LibRadtran
 
-```python
-import matplotlib.pyplot as plt
+The RTPINN code integraiton with Libradtran is based on the print inputs option of DISORT. 
+The code will parse the inputs and outputs of the DISORT simulation to extract the necessary parameters for the RTPINN code.
+Sadly the numerical precision set in the function by default isn't sufficient for correct calculations. so in order to adjust please 
+switch the c_print_inputs funciton in the the CDISORT.C file of libradtran to the one apearing in libradtran_adjustments.txt 
 
-# Example usage to plot the top of the atmosphere radiance
+**TODO: add `.patch`**
 
-radiance_pinn_np = plot_1D(model, tau_list=[0], mu_vec=np.linspace(-1, 1, 50), phi=0, scale=1, label='PINN')
-plt.xlabel('Mu')
-plt.ylabel('Radiance')
-plt.legend()
-plt.show()
+### 4. Running RTPINN
+
+The `solveRTPINN.py` trains the physics informed Neural Network according to a specific scene, in order to train the network 
+the user needs to provide the training properties dictionary which describes the scene and training process, and the model properties dictionary which describes the neural network itself.
+
+### Citation
+
+If you use this code in your research, please cite the following paper:
+
+> **Shai Zucker, Dmitry Batenkov, and Michal Segal Rozenhaimer.**  
+> *Physics-informed neural networks for modeling atmospheric radiative transfer.*  
+> Journal of Quantitative Spectroscopy and Radiative Transfer, Vol. 331, 2025, 109253.  
+> [https://doi.org/10.1016/j.jqsrt.2024.109253](https://doi.org/10.1016/j.jqsrt.2024.109253)  
+
+BibTeX entry:
+```bibtex
+@article{ZUCKER2025109253,
+  title = {Physics-informed neural networks for modeling atmospheric radiative transfer},
+  journal = {Journal of Quantitative Spectroscopy and Radiative Transfer},
+  volume = {331},
+  pages = {109253},
+  year = {2025},
+  issn = {0022-4073},
+  doi = {https://doi.org/10.1016/j.jqsrt.2024.109253},
+  url = {https://www.sciencedirect.com/science/article/pii/S0022407324003601},
+  author = {Shai Zucker and Dmitry Batenkov and Michal Segal Rozenhaimer},
+  keywords = {Radiative transfer equation, Physics-informed neural networks, Atmospheric modeling, Remote sensing, Aerosols, Clouds}
+}
 ```
+
 
 
 
