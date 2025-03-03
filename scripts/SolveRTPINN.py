@@ -9,9 +9,12 @@ import configparser
 from pinns import rtpinn
 
 if torch.cuda.is_available():
-    dev = torch.device("cuda")
+    dev = torch.device('cuda')
+elif torch.backends.mps.is_available():
+    dev = torch.device('mps')    
 else:
     dev = torch.device("cpu")
+torch.set_default_dtype(torch.float32)
 print(f"Using device: {dev}")
 
 config = configparser.ConfigParser()
@@ -70,7 +73,7 @@ model_pr = {
 }
 
 # Initialize the RTPINN Model
-solver = rtpinn.RTPINN(tr_pr, model_pr)
+solver = rtpinn.RTPINN(tr_pr, model_pr, device=dev)
 # full_correction = solver.new_scattering_correction(tau_vec = [1], mu_vec =np.arange(-0.95, 1, 0.011), phi_vec=[70.0*np.pi/180.0])
 model = solver.solve_rte(model_pr)
 scenario_path = os.path.join(scenarios_path, 'lrt', tr_pr['scenario_name'])

@@ -18,11 +18,6 @@ from torch.func import jacrev, vmap
 
 pi = np.pi
 
-if torch.cuda.is_available():
-    dev = torch.device('cuda')
-else:
-    dev = torch.device("cpu")
-
 config = configparser.ConfigParser()
 config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'init_file.ini')
 config.read(config_path)
@@ -30,10 +25,10 @@ scenarios_path = config['PATHS']['scenarios_path']
 
 
 class RTPINN():
-    def __init__(self, tr_pr, model_pr, verbose=True, initiallize_scenario=True):
+    def __init__(self, tr_pr, model_pr, verbose=True, initiallize_scenario=True, device=torch.device("cpu")):
         if verbose:
             pprint.pprint(tr_pr)
-
+        self.dev = device
         self.tr_pr = tr_pr
         self.input_dimensions = 1  # Spatial dimension
         self.initialize_parameters(tr_pr, model_pr)
@@ -44,6 +39,7 @@ class RTPINN():
         self.domain_values = torch.tensor([[0.00, 1]])
         self.parameters_values = torch.tensor([[-1.0, 1.0]])
         self.verbose = verbose
+        
 
     def initialize_parameters(self, tr_pr, model_pr):
         """
@@ -82,14 +78,14 @@ class RTPINN():
         self.lambertian = disort_struct.lambertian
         self.mu_0 = disort_struct.mu_0
         self.phi_0 = disort_struct.phi_0
-        self.tensor_mu_0 = torch.tensor(self.mu_0).to(dev)
+        self.tensor_mu_0 = torch.tensor(self.mu_0).to(self.dev)
 
         if disort_struct.delta_M_Method:
             self.initialize_delta_m_method(disort_struct)
         else:
-            self.total_optical_depth = torch.tensor(disort_struct.long_table.total_optical_depth).to(dev)
-            self.coef_mat = torch.tensor(disort_struct.phase_table.coef).to(dev)
-            self.ssa = torch.tensor(disort_struct.long_table.ssa).to(dev)
+            self.total_optical_depth = torch.tensor(disort_struct.long_table.total_optical_depth).to(self.dev)
+            self.coef_mat = torch.tensor(disort_struct.phase_table.coef).to(self.dev)
+            self.ssa = torch.tensor(disort_struct.long_table.ssa).to(self.dev)
 
         if self.lambertian:
             self.ground_albedo = disort_struct.bottom_albedo
@@ -97,21 +93,21 @@ class RTPINN():
             self.brdf_dict = copy.deepcopy(self.tr_pr['brdf_dict'])
 
     def initialize_delta_m_method(self, disort_struct):
-        self.tau_org = torch.tensor(disort_struct.long_table.total_optical_depth).to(dev)
-        self.d_tau = torch.tensor(disort_struct.long_table.optical_depth).to(dev)
-        self.tau_shifted = torch.concatenate((torch.tensor([0], device=dev), self.tau_org)).to(dev)
+        self.tau_org = torch.tensor(disort_struct.long_table.total_optical_depth).to(self.dev)
+        self.d_tau = torch.tensor(disort_struct.long_table.optical_depth).to(self.dev)
+        self.tau_shifted = torch.concatenate((torch.tensor([0], device=self.dev), self.tau_org)).to(self.dev)
         if disort_struct.phase_function is not None:
-            self.accurate_phase = torch.tensor(disort_struct.phase_function, device=dev)
-            self.mu_phase = torch.tensor(disort_struct.mu_phase, device=dev)
+            self.accurate_phase = torch.tensor(disort_struct.phase_function, device=self.dev)
+            self.mu_phase = torch.tensor(disort_struct.mu_phase, device=self.dev)
         else:
             self.accurate_phase = None
             self.mu_phase = None
-        self.ssa_org = torch.tensor(disort_struct.long_table.ssa).to(dev)
-        self.total_optical_depth = torch.tensor(disort_struct.long_table.dm_total_optical_depth).to(dev)
-        self.coef_mat_org = torch.tensor(np.stack(disort_struct.phase_table.coef)).to(dev)
+        self.ssa_org = torch.tensor(disort_struct.long_table.ssa).to(self.dev)
+        self.total_optical_depth = torch.tensor(disort_struct.long_table.dm_total_optical_depth).to(self.dev)
+        self.coef_mat_org = torch.tensor(np.stack(disort_struct.phase_table.coef).astype(np.float32)).to(self.dev)
         self.coef_mat = torch.zeros_like(self.coef_mat_org)
-        self.ssa = torch.tensor(disort_struct.long_table.dm_ssa).to(dev)
-        self.dm_separated_fraction = torch.tensor(disort_struct.long_table.dm_separated_fraction).to(dev)
+        self.ssa = torch.tensor(disort_struct.long_table.dm_ssa).to(self.dev)
+        self.dm_separated_fraction = torch.tensor(disort_struct.long_table.dm_separated_fraction).to(self.dev)
 
         for ii in range(self.coef_mat_org.shape[0]):
             for jj in range(self.coef_mat_org.shape[1]):
@@ -124,7 +120,7 @@ class RTPINN():
         self.mu_0 = params['mu_0'][0]
         self.phi_0 = params['phi_0'][0]
         self.delta_m = params['delta_m'][0]
-        self.tensor_mu_0 = torch.tensor(self.mu_0).to(dev)
+        self.tensor_mu_0 = torch.tensor(self.mu_0).to(self.dev)
 
         if self.delta_m:
             self.handle_delta_m_file_scenario()
@@ -164,9 +160,9 @@ class RTPINN():
         :param phi_vec: vector of azimuthal angle values
         :return: a matrix containing the scattering correction values for tau, mu, and phi
         """
-        tau_vec = tau_vec if isinstance(tau_vec, torch.Tensor) else torch.tensor(tau_vec, device=dev)
-        mu_vec = mu_vec if isinstance(mu_vec, torch.Tensor) else torch.tensor(mu_vec, device=dev)
-        phi_vec = phi_vec if isinstance(phi_vec, torch.Tensor) else torch.tensor(phi_vec, device=dev)
+        tau_vec = tau_vec if isinstance(tau_vec, torch.Tensor) else torch.tensor(tau_vec, device=self.dev)
+        mu_vec = mu_vec if isinstance(mu_vec, torch.Tensor) else torch.tensor(mu_vec, device=self.dev)
+        phi_vec = phi_vec if isinstance(phi_vec, torch.Tensor) else torch.tensor(phi_vec, device=self.dev)
         accurate_phase = self.accurate_phase if self.accurate_phase.dim() > 1 else self.accurate_phase.unsqueeze(0)
 
         tau_unormalized = tau_vec * self.tau_org[-1]
@@ -187,22 +183,22 @@ class RTPINN():
 
             phase_term = (
                     accurate_phase[tau_ind, :len(self.mu_phase)] - phase_r[tau_ind, :]).T
-            tau_diff = (tau_vec * self.tau_org[-1] - self.tau_org[tau_ind - 1]).to(dev)
-            ssa_term = self.ssa_org[tau_ind].to(dev)  # shape: (n_tau,)
+            tau_diff = (tau_vec * self.tau_org[-1] - self.tau_org[tau_ind - 1]).to(self.dev)
+            ssa_term = self.ssa_org[tau_ind].to(self.dev)  # shape: (n_tau,)
             phase_2 = phase_2 + phase_term * ssa_term.unsqueeze(0) * tau_diff.unsqueeze(0)
 
             fbar = self.dm_separated_fraction[tau_ind] * self.ssa_org[tau_ind] * tau_diff
             fbar += torch.sum(self.ssa_org[:, None] * self.d_tau[:, None] * self.dm_separated_fraction[:, None], dim=0)
-            fbar = torch.where(fbar != 0, 1.0 / fbar, torch.tensor(0.0, device=dev))
+            fbar = torch.where(fbar != 0, 1.0 / fbar, torch.tensor(0.0, device=self.dev))
             phase_2 = phase_2 * fbar.unsqueeze(0)
 
             f_phas2 = torch.trapz(phase_2, self.mu_phase, dim=0)
-            norm = torch.where(f_phas2 != 0, 2.0 / f_phas2, torch.tensor(1.0, device=dev))
+            norm = torch.where(f_phas2 != 0, 2.0 / f_phas2, torch.tensor(1.0, device=self.dev))
             phase_2 = phase_2 * norm.unsqueeze(0)
         M = len(mu_vec)
         P = len(phi_vec)
         n_tau = len(tau_vec)
-        full_correction_mat = torch.empty((M, P, n_tau), device=dev)
+        full_correction_mat = torch.empty((M, P, n_tau), device=self.dev)
         ctheta = (-self.tensor_mu_0 * mu_vec[:, None] +
                   torch.sqrt((1 - self.tensor_mu_0 ** 2) * (1 - mu_vec[:, None] ** 2)) * torch.cos(phi_vec[None, :]))
 
@@ -269,10 +265,10 @@ class RTPINN():
         tiny = 1e-4
         if dm:
             ssa_vec = self.ssa_org
-            tau_vec_local = torch.cat((torch.tensor([0], device=dev), self.tau_org))
+            tau_vec_local = torch.cat((torch.tensor([0], device=self.dev), self.tau_org))
         else:
             ssa_vec = self.ssa
-            tau_vec_local = torch.cat((torch.tensor([0], device=dev), self.total_optical_depth))
+            tau_vec_local = torch.cat((torch.tensor([0], device=self.dev), self.total_optical_depth))
         if torch.abs(mu + self.tensor_mu_0) <= tiny:
             ans = 0.0
             for lyr in range(u_lyr + 1):
@@ -330,7 +326,7 @@ class RTPINN():
             return 0.0
         fbar /= wbar
         wbar /= stau
-        eps = torch.tensor(1e-8, device=dev)
+        eps = torch.tensor(1e-8, device=self.dev)
         pspike1 = phase_2[ctheta_ind, lu] + (ctheta - self.mu_phase[ctheta_ind]) / (
             torch.max(self.mu_phase[ctheta_ind + 1] - self.mu_phase[ctheta_ind], eps)) * (
                           phase_2[ctheta_ind + 1, lu] - phase_2[ctheta_ind, lu])
@@ -358,11 +354,11 @@ class RTPINN():
         :return:
         """
         if not isinstance(mu_eq, torch.Tensor):
-            mu_eq = torch.tensor(mu_eq, device=dev)
+            mu_eq = torch.tensor(mu_eq, device=self.dev)
         if not isinstance(neg_phas, torch.Tensor):
-            neg_phas = torch.tensor(neg_phas, device=dev)
+            neg_phas = torch.tensor(neg_phas, device=self.dev)
         if not isinstance(norm_phas, torch.Tensor):
-            norm_phas = torch.tensor(norm_phas, device=dev)
+            norm_phas = torch.tensor(norm_phas, device=self.dev)
         pspike2 = 0.0
         stheta = torch.sqrt(1.0 - ctheta * ctheta)
         for j in range(nf):
@@ -466,7 +462,7 @@ class RTPINN():
         :param filename:
         :return:
         """
-        return torch.tensor(self.read_csv_file(filename).values).to(dev)
+        return torch.tensor(self.read_csv_file(filename).values).to(self.dev)
 
     def phase_func_cos(self, M, coeff_vec, theta):
         """
@@ -541,7 +537,7 @@ class RTPINN():
                         k[:, :, mm] = k[:, :, mm] + 2 * ((-1) ** (ll + mm)) * (2 * ll + 1) * d_ll * kn
                 else:
                     k[:, :, mm] = k[:, :, mm] + (2 * ll + 1) * d_ll * kn
-        return k.to(dev)
+        return k.to(self.dev)
 
     def reflection_coeff(self, brdf, mm, phi_prime, w):
         """
@@ -610,7 +606,7 @@ class RTPINN():
             for j in range(samples):
                 seed = j + skip
                 data[j, :], next_seed = sobol_seq.i4_sobol(dim, seed)
-            params = torch.from_numpy(data) * (extrema_f - extrema_0) + extrema_0
+            params = torch.from_numpy(data.astype(np.float32)) * (extrema_f - extrema_0) + extrema_0
             return params
         elif type_point_param == "grid":
             # if n_time_step is None:
@@ -666,7 +662,7 @@ class RTPINN():
 
         else:
             raise ValueError()
-        return inputs.to(dev)
+        return inputs.to(self.dev)
 
     def compute_R_int(self, network, x_f_train, omega_x_f_train, kern_coll, kern_x_0, w_tensor):
         """
@@ -685,7 +681,7 @@ class RTPINN():
         X_m_0 = (omega_x_f_train.unsqueeze(1).expand(I.shape) * self.I_0 / (4 * pi)) * kern_x_0.squeeze(1)
         Q_m = X_m_0 * torch.exp(
             -x_f_train[:, 0].unsqueeze(1).expand(I.shape) * (self.total_optical_depth[-1]) / self.tensor_mu_0)
-        c_vec = 1 / torch.ones(self.n_mode, device=dev)
+        c_vec = 1 / torch.ones(self.n_mode, device=self.dev)
         return torch.sum(c_vec.unsqueeze(0).expand(I.shape) * ((x_f_train[:, 1].unsqueeze(1).expand(
             I.shape) * grad_I_m - I + (omega_x_f_train.unsqueeze(1).expand(I.shape) / 2) * scatter_values + Q_m) ** 2),
                          1)
@@ -717,12 +713,12 @@ class RTPINN():
                                          [0, 1]).reshape(-1, 1)
         x0 = torch.tensor(()).new_full(size=(int(n_boundary / 2), 1), fill_value=float(self.domain_values[0, 0]))
         x1 = torch.tensor(()).new_full(size=(int(n_boundary / 2), 1), fill_value=float(self.domain_values[0, 1]))
-        x = torch.cat([x0, x1], 0).to(dev)
-        mu = torch.cat([mu0, mu1], 0).to(dev)
+        x = torch.cat([x0, x1], 0).to(self.dev)
+        mu = torch.cat([mu0, mu1], 0).to(self.dev)
         ub0 = torch.tensor(()).new_full(size=(int(n_boundary / 2), 1),
                                         fill_value=0)
         ub1 = torch.tensor(()).new_full(size=(int(n_boundary / 2), 1), fill_value=0.0)
-        ub = torch.cat([ub0, ub1], 0).to(dev)
+        ub = torch.cat([ub0, ub1], 0).to(self.dev)
         if self.sampling_method in ["quadrature", "stream_quadrature"]:
             return torch.cat([x, mu], 1), ub, w
         else:
@@ -763,48 +759,48 @@ class RTPINN():
 
         n0 = torch.tensor(()).new_full(size=(n0_len,), fill_value=1.0)
         n1 = torch.tensor(()).new_full(size=(n1_len,), fill_value=-1.0)
-        n = torch.cat([n0, n1], 0).to(dev)
+        n = torch.cat([n0, n1], 0).to(self.dev)
 
         scalar = n * mu < 0
 
-        self.x_boundary_inf = x_boundary[scalar, :].to(dev)
-        u_boundary_inf = (u_boundary.to(dev))[scalar, :]
+        self.x_boundary_inf = x_boundary[scalar, :].to(self.dev)
+        u_boundary_inf = (u_boundary.to(self.dev))[scalar, :]
 
-        self.where_x_equal_1 = (self.x_boundary_inf[:, 0] == self.domain_values[0, 1]).to(dev)
-        where_x_equal_0 = (self.x_boundary_inf[:, 0] == self.domain_values[0, 0]).to(dev)
+        self.where_x_equal_1 = (self.x_boundary_inf[:, 0] == self.domain_values[0, 1]).to(self.dev)
+        where_x_equal_0 = (self.x_boundary_inf[:, 0] == self.domain_values[0, 0]).to(self.dev)
 
-        u_boundary_inf = (u_boundary_inf.reshape(-1, )).to(dev)
-        self.u_boundary_inf_mod = (torch.where(where_x_equal_0, torch.tensor(0.0).to(dev), u_boundary_inf)).to(dev)
-        self.u_boundary_multi_mod = torch.zeros((len(self.x_boundary_inf), self.n_mode)).to(dev)
+        u_boundary_inf = (u_boundary_inf.reshape(-1, )).to(self.dev)
+        self.u_boundary_inf_mod = (torch.where(where_x_equal_0, torch.tensor(0.0).to(self.dev), u_boundary_inf)).to(self.dev)
+        self.u_boundary_multi_mod = torch.zeros((len(self.x_boundary_inf), self.n_mode)).to(self.dev)
         for mode_ind in range(self.n_mode):
             self.u_boundary_multi_mod[:, mode_ind] = self.u_boundary_inf_mod
         # for the compute_ground_boundary function
         mu_prime, w = np.polynomial.legendre.leggauss(self.N_R)
-        mu_prime = torch.tensor(mu_prime).reshape(self.N_R, -1).to(dev)
-        self.w = torch.tensor(w).reshape(self.N_R, -1).float().to(dev)
+        mu_prime = torch.tensor(mu_prime.astype(np.float32)).reshape(self.N_R, -1).to(self.dev)
+        self.w = torch.tensor(w.astype(np.float32)).reshape(self.N_R, -1).float().to(self.dev)
         self.mu_prime = (0.5 * mu_prime + 0.5).float()  # S.Z 2401 moving the quadrature around [0,1]
         x_quad_ground = torch.tensor(()).new_full(size=(mu_prime.shape[0], 1), fill_value=self.domain_values[0, 1]).to(
-            dev)
-        self.reflection_inputs = torch.cat([x_quad_ground, -self.mu_prime], 1).float().to(dev)
+            self.dev)
+        self.reflection_inputs = torch.cat([x_quad_ground, -self.mu_prime], 1).float().to(self.dev)
         # if self.lambertian == False:
-        mu_g = x_boundary[x_boundary[:, 0] == torch.max(x_boundary[:, 0]), 1].to(dev)
+        mu_g = x_boundary[x_boundary[:, 0] == torch.max(x_boundary[:, 0]), 1].to(self.dev)
         phi_prime, w = np.polynomial.legendre.leggauss(int(1500))
-        W = torch.tensor(w.reshape(len(w), 1).repeat(mu_g.shape[0], 1)).to(dev)
+        W = torch.tensor(w.astype(np.float32).reshape(len(w), 1).repeat(mu_g.shape[0], 1)).to(self.dev)
         phi_prime = pi + pi * phi_prime
-        phi_prime_tensor = torch.tensor(phi_prime).to(dev)  # Convert phi_prime to tensor and move to device
-        mu_g_tensor = mu_g.to(dev)  # Ensure mu_g is also on the same device
+        phi_prime_tensor = torch.tensor(phi_prime.astype(np.float32)).to(self.dev)  # Convert phi_prime to tensor and move to device
+        mu_g_tensor = mu_g.to(self.dev)  # Ensure mu_g is also on the same device
 
         # Use meshgrid to generate a grid for computation
         PHI_PRIME, MU_G = torch.meshgrid(phi_prime_tensor, mu_g_tensor, indexing='ij')
 
         self.rho_m = torch.tensor(()).new_full(size=(mu_prime.shape[0], mu_g.shape[0], self.n_mode),
                                                fill_value=0.0).to(
-            dev)
+            self.dev)
         self.rho_m_0 = torch.tensor(()).new_full(size=(mu_g.shape[0], self.n_mode), fill_value=0.0).to(
-            dev)
+            self.dev)
         if self.lambertian:
-            self.rho_m = torch.zeros(mu_prime.shape[0], mu_g.shape[0], self.n_mode, device=dev)
-            self.rho_m_0 = torch.zeros(mu_g.shape[0], self.n_mode, device=dev)
+            self.rho_m = torch.zeros(mu_prime.shape[0], mu_g.shape[0], self.n_mode, device=self.dev)
+            self.rho_m_0 = torch.zeros(mu_g.shape[0], self.n_mode, device=self.dev)
             self.rho_m[:, :, 0] = self.ground_albedo
             self.rho_m_0[:, 0] = self.ground_albedo
         else:
@@ -851,7 +847,7 @@ class RTPINN():
             model_outputs.unsqueeze(1).expand(self.N_R, self.rho_m.shape[1], self.n_mode) * self.rho_m *
             self.mu_prime.unsqueeze(2).expand(self.N_R, self.rho_m.shape[1], self.n_mode) * self.w.unsqueeze(2).expand(
                 self.N_R, self.rho_m.shape[1], self.n_mode), 0)
-        const = 0.5 * torch.ones_like(k, device=dev)
+        const = 0.5 * torch.ones_like(k, device=self.dev)
         const[:, 0] = 1.0
         # Compute boundary condition
         u_b_ground = (1 / torch.pi) * self.tensor_mu_0 * torch.exp(
@@ -869,19 +865,19 @@ class RTPINN():
         """
         if direction == 'down':
             mu_prime, w = np.polynomial.legendre.leggauss(int(self.N_S / 2))
-            mu_prime = torch.tensor(mu_prime).reshape(int(self.N_S / 2), -1).to(dev)
-            w = torch.tensor(w).reshape(int(self.N_S / 2), -1).to(dev)
+            mu_prime = torch.tensor(mu_prime).reshape(int(self.N_S / 2), -1).to(self.dev)
+            w = torch.tensor(w).reshape(int(self.N_S / 2), -1).to(self.dev)
             mu_prime = 0.5 * mu_prime + 0.5
-            tau_quad = torch.tensor(()).new_full(size=(mu_prime.shape[0], 1), fill_value=tau).to(dev)
+            tau_quad = torch.tensor(()).new_full(size=(mu_prime.shape[0], 1), fill_value=tau).to(self.dev)
             k = torch.sum(model(torch.cat([tau_quad, -mu_prime], 1)) * mu_prime * w)
             return k * pi
         else:
             # SZDO: implement the upwelling flux
             mu_prime, w = np.polynomial.legendre.leggauss(int(self.N_S / 2))
-            mu_prime = torch.tensor(mu_prime).reshape(int(self.N_S / 2), -1).to(dev)
-            w = torch.tensor(w).reshape(int(self.N_S / 2), -1).to(dev)
+            mu_prime = torch.tensor(mu_prime).reshape(int(self.N_S / 2), -1).to(self.dev)
+            w = torch.tensor(w).reshape(int(self.N_S / 2), -1).to(self.dev)
             mu_prime = 0.5 * mu_prime + 0.5  # S.Z 2401 moving the quadrature around [0,1]
-            tau_quad = torch.tensor(()).new_full(size=(mu_prime.shape[0], 1), fill_value=tau).to(dev)
+            tau_quad = torch.tensor(()).new_full(size=(mu_prime.shape[0], 1), fill_value=tau).to(self.dev)
             k = torch.sum(model(torch.cat([tau_quad, mu_prime], 1)) * mu_prime * w)
             return k * pi
 
@@ -891,12 +887,12 @@ class RTPINN():
         Fit the model using ADAM and LBFGS optimizers.
         """
         # Prepare training data
-        x_coll_train = x_coll_train.float().to(dev)
+        x_coll_train = x_coll_train.float().to(self.dev)
         if w_b is not None:
-            w_b, w_coll = w_b.to(dev), w_coll.to(dev)
+            w_b, w_coll = w_b.to(self.dev), w_coll.to(self.dev)
 
-        model.train()
-        omega_x_f_train = self.omega(x_coll_train[:, 0].to(dev))
+        model.to(self.dev).train()
+        omega_x_f_train = self.omega(x_coll_train[:, 0].to(self.dev))
         legendre_coef = self.compute_legendre_coef(x_coll_train)
         mu_prime, w_tensor = self.double_gauss_legendre_quadrature()
         kern_coll = self.kernel(x_coll_train[:, 1], mu_prime, legendre_coef)
@@ -904,7 +900,7 @@ class RTPINN():
         self.boundary_settings(x_b_train, u_b_train)
         self.inputs = self.prepare_inputs(x_coll_train, mu_prime)
         x_coll_train.requires_grad = True
-        loss_obj = PinnsLoss(self.apply_BC, self.compute_R_int, self.x_boundary_inf.float())
+        loss_obj = PinnsLoss(self.apply_BC, self.compute_R_int, self.x_boundary_inf).to(self.dev)
         train_loss_total, epochs_vec = [], []
         for epoch in range(self.n_epohcs):
             optimizer = optimizer_ADAM if epoch < epoch_ADAM else optimizer_LBFGS
@@ -941,7 +937,7 @@ class RTPINN():
         def closure():
             optimizer.zero_grad()
             loss_f = loss_obj(model, x_coll_train, omega_x_f_train, kern_coll, kern_x_0, w_tensor, mu_prime,
-                              torch.tensor([1, 1]).to(dev))
+                              torch.tensor([1, 1]).to(self.dev))
             loss_f.backward()
             if save:
                 train_loss_total.append(loss_f.item())
@@ -957,8 +953,8 @@ class RTPINN():
         """
         legendre_coef = []
         for ii in range(self.nmom):
-            legendre_coef.append(interp(self.total_optical_depth.to(dev), self.coef_mat[:, ii].to(dev),
-                                        (self.total_optical_depth[-1].to(dev) * x_coll_train[:, 0].to(dev))).float())
+            legendre_coef.append(interp(self.total_optical_depth.to(self.dev), self.coef_mat[:, ii].to(self.dev),
+                                        (self.total_optical_depth[-1].to(self.dev) * x_coll_train[:, 0].to(self.dev))).float())
         return legendre_coef
 
     def double_gauss_legendre_quadrature(self):
@@ -969,8 +965,8 @@ class RTPINN():
         mu_prime, w = np.polynomial.legendre.leggauss(int(self.N_S / 2))
         mu_prime = np.concatenate([-0.5 + 0.5 * mu_prime, 0.5 + 0.5 * mu_prime])
         w = np.concatenate([w / 2, w / 2])
-        w_tensor = torch.from_numpy(w).float().to(dev)
-        mu_prime = torch.from_numpy(mu_prime).float().to(dev)
+        w_tensor = torch.from_numpy(w).float().to(self.dev)
+        mu_prime = torch.from_numpy(mu_prime).float().to(self.dev)
         return mu_prime, w_tensor
 
     def prepare_inputs(self, x_coll_train, mu_prime):
@@ -1028,7 +1024,7 @@ class RTPINN():
             if torch.cuda.is_available():
                 if self.verbose:
                     print("Loading model on GPU")
-                model.cuda(device=dev)
+                model.cuda(device=self.dev)
         else:
             if self.verbose:
                 print("model name:", model_pr['load_model'])
@@ -1043,10 +1039,7 @@ class RTPINN():
         :return: loaded model
         """
         model_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Model", f"{model_pr['load_model']}.pt")
-        if torch.cuda.is_available():
-            return torch.load(model_file, map_location=dev,weights_only=False)
-        else:
-            return torch.load(model_file, map_location=torch.device('cpu'))
+        return torch.load(model_file, map_location=self.dev, weights_only=False)
 
     def prepare_training_data(self):
         """
@@ -1129,6 +1122,7 @@ def plot_1D(model, tau_list, mu_vec, phi, correction=0, scale=1, color=None, lab
     :param ax: axis used for the matplotlib plotting function
     :return:
     """
+    model.cpu()
     if np.isnan(correction).any():
         correction = 0
     if ax == None:
@@ -1138,13 +1132,13 @@ def plot_1D(model, tau_list, mu_vec, phi, correction=0, scale=1, color=None, lab
             x_test = np.ones([len(mu_vec), 3]) * tau
             x_test[:, 1] = mu_vec
             x_test[:, 2] = phi
-            radiance_pinn = model.fourier_sum(torch.Tensor(x_test).float().to(dev))
+            radiance_pinn = model.fourier_sum(torch.Tensor(x_test).float())
             radiance_pinn_np = (radiance_pinn.detach().cpu().numpy() + correction) * scale
             ax.plot(x_test[:, 1], radiance_pinn_np, label=label, color=color)
         else:
             x_test = np.ones([len(mu_vec), 2]) * tau
             x_test[:, 1] = mu_vec
-            radiance_pinn = model(torch.Tensor(x_test).to(dev))
+            radiance_pinn = model(torch.Tensor(x_test))
             radiance_pinn_np = (correction + radiance_pinn.detach().cpu().numpy()) * scale
             if color == None:
                 if label == None:
@@ -1179,7 +1173,7 @@ def plot_skymap(model, tau_list, umu_vec, phi_vec, scale, correction=None, direc
             input_vec = np.ones([len(umu_vec), 3]) * tau
             input_vec[:, 1] = umu_vec
             input_vec[:, 2] = phi
-            radiance_pinn = model.fourier_sum(torch.from_numpy(input_vec).float().to(dev))
+            radiance_pinn = model.fourier_sum(torch.from_numpy(input_vec).float())
             radiance_pinn_np = radiance_pinn.detach().cpu().numpy()
             if correction:
                 radiance_mat[tau_i, :, phi_i] = (radiance_pinn_np + correction[:, phi_i]) * scale
@@ -1204,7 +1198,7 @@ def plot_heatmap(model, alt_vec, mu, tau_vec, scale, correction, tau_star):
     for ii in range(len(alt_vec)):
         x_test = np.ones([len(mu), 2]) * tau_vec[ii] / tau_star
         x_test[:, 1] = mu
-        radiance_pinn = model(torch.Tensor(x_test).to(dev))
+        radiance_pinn = model(torch.Tensor(x_test))
         if correction is None:
             avg_radiance[ii, :] = radiance_pinn.detach().cpu().numpy().reshape(-1) * scale
         else:
@@ -1241,10 +1235,10 @@ class Pinns(nn.Module):
         return self.output_layer(x)
 
     def fourier_sum(self, input_vec):
-        fourier_sum = torch.zeros(input_vec.shape[0]).to(dev)
+        fourier_sum = torch.zeros(input_vec.shape[0])
         for mode in range(self.output_dimension):
             fourier_sum = fourier_sum + self.forward(input_vec[:, 0:2])[:, mode].reshape(-1) * \
-                          torch.cos(mode * (input_vec[:, 2])).to(dev).reshape(-1)
+                          torch.cos(mode * (input_vec[:, 2])).reshape(-1)
         return fourier_sum
 
     def update_from_file(self, weight_file, params_file):
@@ -1295,9 +1289,9 @@ class PinnsLoss(torch.nn.Module):
         u_train_b = self.apply_BC(network)
         res_b = (u_pred - u_train_b).pow_(2)
         if network.output_dimension > 1:
-            reg_one = torch.stack((x_f_train[:, 0], torch.ones_like(x_f_train[:, 0], device=dev)), dim=1)
+            reg_one = torch.stack((x_f_train[:, 0], torch.ones_like(x_f_train[:, 0], device=x_f_train.device)), dim=1)
             res_one = network(reg_one)[:, 1:].pow_(2)
-            reg_m_one = torch.stack((x_f_train[:, 0], - 1 * torch.ones_like(x_f_train[:, 0], device=dev)), dim=1)
+            reg_m_one = torch.stack((x_f_train[:, 0], - 1 * torch.ones_like(x_f_train[:, 0], device=x_f_train.device)), dim=1)
             res_m_one = network(reg_m_one)[:, 1:].pow_(2)
             loss_reg = torch.mean(res_one + res_m_one)
         else:
