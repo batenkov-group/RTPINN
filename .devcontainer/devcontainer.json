@@ -1,0 +1,34 @@
+{
+    "name": "RTPINN",
+    "build": {
+        "dockerfile": "Dockerfile",
+        "context": "."
+    },
+    "remoteUser": "vscode",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-vscode.cpptools",
+                "ms-vscode.cmake-tools",
+                "twxs.cmake",             
+                "ms-python.python",
+                "ms-toolsai.jupyter",
+                "donjayamanne.python-environment-manager",
+                "tomoki1207.pdf",
+            ],
+            "settings": {
+                "python.defaultInterpreterPath": "/workspaces/RTPINN/.venv/bin/python",
+                "python.terminal.activateEnvironment": true
+            }
+        }
+    },
+    "features": {
+        "ghcr.io/devcontainers/features/common-utils:2": {
+            "installZsh": true,
+            "configureZshAsDefaultShell": true,
+            "installOhMyZsh": true,
+            "upgradePackages": true
+        }
+    },
+    "postCreateCommand": "uv venv .venv && . .venv/bin/activate && uv pip install -r requirements.txt"
+}

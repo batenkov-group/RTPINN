@@ -1,0 +1,79 @@
+--- cdisort.c	2024-08-08 12:31:49.000000000 +0000
++++ cdisort.c.new	2025-02-10 18:09:35.904933001 +0000
+@@ -6835,11 +6835,29 @@
+     fprintf (stdout, " Does not use delta-M method\n");
+   }
+ 
++// S.Z edited this line so it will print the full phase function when the correction is used
+   if (corint) {
+     fprintf (stdout, " Uses TMS/IMS method\n");
++    if (!ds->flag.old_intensity_correction) {
++      fprintf(stdout, "\n Phase Function Moments Table:\n");
++      fprintf(stdout, " lvscost ");
++      for (int i = 0; i < ds->nphase; i++) {
++        fprintf(stdout, " %20.16f", ds->mu_phase[i]);
++      }
++      fprintf(stdout, "\n");
++      for (int j = 0; j < ds->nlyr; j++) {
++        fprintf(stdout, "%5d ", j);
++        for (int i = 0; i < ds->nphase; i++) {
++          fprintf(stdout, "%20.16f ", ds->phase[i + j * ds->nphase]);
++        }
++        fprintf(stdout, "\n");
++      }
++      fprintf(stdout, "\n");
++    }
+   } else {
+     fprintf (stdout, " Does not use TMS/IMS method\n");
+   }
++// S.Z Change is up to here
+ 
+   if (ds->flag.ibcnd == SPECIAL_BC) {
+     fprintf (stdout, " Calculate albedo and transmissivity of medium vs. incident beam angle\n");
+@@ -6874,7 +6892,7 @@
+ 
+     if (ds->flag.planck) {
+       fprintf (stdout,
+-               "%4d%10.4f%10.4f%10.5f%12.5f%10.4f%10.4f%10.5f%9.4f%14.3f\n",
++               "%4d%20.16f%20.16f%20.16f%22.16f%20.16f%20.16f%20.16f%19.16f%24.16f\n",
+                lc,
+                DTAUC (lc),
+                TAUC (lc),
+@@ -6887,17 +6905,17 @@
+                TEMPER (lc - 1));
+     } else {
+       fprintf (stdout,
+-               "%4d%10.4f%10.4f%10.5f%12.5f%10.4f%10.4f%10.5f%9.4f\n",
+-               lc,
+-               DTAUC (lc),
+-               TAUC (lc),
+-               SSALB (lc),
+-               FLYR (lc),
+-               DTAUCPR (lc),
+-               TAUCPR (lc),
+-               OPRIM (lc),
+-               PMOM (1, lc));
+-    }
++           "%4d%20.16f%20.16f%20.16f%22.16f%20.16f%20.16f%20.16f%19.16f\n",
++           lc,
++           DTAUC (lc),
++           TAUC (lc),
++           SSALB (lc),
++           FLYR (lc),
++           DTAUCPR (lc),
++           TAUCPR (lc),
++           OPRIM (lc),
++           PMOM (1, lc));
++        }
+   }
+   if (ds->flag.planck) {
+     fprintf (stdout,
+@@ -6912,7 +6930,7 @@
+       if (SSALB (lc) > 0.) {
+         fprintf (stdout, "%6d", lc);
+         for (k = 0; k <= ds->nmom; k++) {
+-          fprintf (stdout, "%11.6f", PMOM (k, lc));
++          fprintf (stdout, "%20.10f", PMOM (k, lc));
+           if ((k + 1) % 10 == 0) {
+             fprintf (stdout, "\n      ");
+           }
