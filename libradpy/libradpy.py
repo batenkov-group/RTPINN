@@ -246,9 +246,8 @@ class RossLiSurface(Surface):
 
 class LibRadPy:
     # default constructor
-    def __init__(self, path, outpath, verbose=True):
-        self.path = path
-        self.outpath = outpath
+    def __init__(self, lrt_path, verbose=True):
+        self.path = lrt_path
         self.skip_list = []
         self.skip = False
         self.verbose = verbose
@@ -300,9 +299,10 @@ class LibRadPy:
                 if self.verbose:
                     print("Scenario exists!")
             output_file_scenario = os.path.join(scenario_dir, output_file)
-            shutil.copy(input_file, os.path.join(self.path, 'examples'))
-            examples_run_file = os.path.join(self.path, 'examples', 'UVSPEC_IO_AUTO.INP')
-            command = UVSPEC_COMMAND + examples_run_file + '> ' + output_file_scenario
+            # examples_run_file = os.path.join(scenario_dir, 'UVSPEC_IO_AUTO.INP')
+            # shutil.copy(input_file, examples_run_file)
+            
+            command = UVSPEC_COMMAND + input_file + '> ' + output_file_scenario
             # command = UVSPEC_COMMAND + examples_run_file
             output = os.popen(command).read()
             if self.verbose:
