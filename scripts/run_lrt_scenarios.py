@@ -113,15 +113,12 @@ def run_n_update_scenario(alt_vec=None, save_scenario = True):
         else:
             print("Scenario exists! Overwriting...")    
     # generate and plot the TOA and BOA radiance
+    scale = None
     for x_ind, x in enumerate(alt_vec):
         for method in methods:
             if method == 'mystic':
                 #Load the scale value (since the .spc file is less stable then the .rad)
-                disort_output = os.path.join(scenarios_path, 'lrt', scenario_name, 'disort_output_file.npz')
-                if not os.path.exists(disort_output):
-                    print(f"Disort output file {disort_output} does not exist! Cannot run mystic!")
-                    continue
-                scale = np.load(disort_output)['scale']
+                assert scale is not None, "Scale is not set!"
                 solver = lrp.MysticSolver(mc_photons=10e4, mc_vroom=False)
                 eval_pts = lrp.EvalPts(mu=mu_lowres, phi=[0], zout=x)
             elif method == 'disort':
@@ -129,8 +126,9 @@ def run_n_update_scenario(alt_vec=None, save_scenario = True):
                 eval_pts = lrp.EvalPts(mu=mu, phi=phi, zout=x)
             lines = lrp_obj.gen_lrt_input(scene, solver, eval_pts, time_stamp=False)
     
+            output_file = 'uvspec_output.out' if method == 'disort' else 'uvspec_output_mystic.out'
             lrp_obj.write_input_file(path=scenario_dir, lines=lines, file_name = 'UVSPEC_IO_AUTO.INP', quiet=True)
-            lrp_obj.run_uvspec(os.path.join(scenario_dir, 'UVSPEC_IO_AUTO.INP'),
+            lrp_obj.run_uvspec(os.path.join(scenario_dir, 'UVSPEC_IO_AUTO.INP'), output_file=output_file,
                                scenario_name=scenario_name, scenarios_path=scenarios_path)
             if method == 'mystic':
                 mystic_radiance[x_ind, :, :] = lrp_obj.read_rad_mystic(mu_lowres, phi, zout=x,scale = scale)
